@@ -14,7 +14,7 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 - ✅ **Analytics Engine** calculating metrics in real-time
 - ✅ **Task Management** with status and priority tracking
 - ✅ **Error Handling** with comprehensive middleware
-- ✅ **Code Coverage** with Node.js test runner (>60% requirement)
+- ✅ **Code Coverage** with Node.js test runner and comprehensive reporting
 
 ### Frontend Features
 - ✅ **Vue.js 3 SPA** with Composition API
@@ -25,7 +25,7 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 - ✅ **Task Management** with filtering and pagination
 - ✅ **Responsive Design** for desktop and mobile
 - ✅ **Dark Mode** support
-- ✅ **Code Coverage** with Vitest (>60% requirement)
+- ✅ **Code Coverage** with Vitest and detailed reporting
 
 ### Real-time Features
 - 📊 **Live Analytics Updates** - Task metrics update in real-time
@@ -83,6 +83,7 @@ This starts:
 cd backend
 cp .env.example .env    # Important: Copy environment variables
 npm install
+npm run seed            # Generate sample task data (optional)
 npm run dev
 ```
 
@@ -108,22 +109,26 @@ Frontend runs on `http://localhost:5173`
 1. **Start databases**: `docker-compose up -d`
 2. **Start backend**: `cd backend && npm run dev`
 3. **Start frontend**: `cd frontend && npm run dev`
-4. **Access dashboard**: `http://localhost:5173`
+4. **Generate sample data**: `cd backend && npm run seed` (optional)
+5. **Access dashboard**: `http://localhost:5173`
 
-### Demo Mode
+### Sample Data Generation
+
+Generate realistic sample tasks to populate the dashboard:
 
 ```bash
-cd demo
-npm install
-npm start
+cd backend
+npm run seed          # Generate 50 sample tasks (default)
+npm run seed:small    # Generate 25 sample tasks
+npm run seed:large    # Generate 100 sample tasks
 ```
 
-The demo script will:
-- Test all API endpoints
-- Demonstrate real-time features
-- Show caching performance
-- Create sample data
-- Display analytics metrics
+The seeding script creates:
+- **Diverse task categories**: Development, design, planning, maintenance
+- **Realistic distributions**: 40% completed, 30% in-progress, 30% pending
+- **Priority weighting**: 20% high, 50% medium, 30% low
+- **Time tracking**: Estimated and actual completion times
+- **Historical data**: Tasks spanning the last 3 months
 
 ## 🧪 Testing
 
@@ -143,17 +148,17 @@ npm test                    # Run tests
 npm run test:coverage      # Run with coverage
 ```
 
-Both test suites are configured to meet the 60% code coverage requirement.
+Both test suites include comprehensive coverage reporting.
 
-## 📊 API Documentation
-
-### Authentication
-Currently, no authentication is required. JWT support is planned for future releases.
+## 📊 API Reference
 
 ### Base URL
 ```
 http://localhost:3001/api
 ```
+
+### Authentication
+No authentication required for this technical assessment.
 
 ### Endpoints
 
@@ -178,6 +183,32 @@ http://localhost:3001/api
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | API health check |
+
+### Request/Response Examples
+
+#### GET /tasks
+```bash
+curl "http://localhost:3001/api/tasks?page=1&limit=5&status=completed"
+```
+
+#### POST /tasks
+```bash
+curl -X POST http://localhost:3001/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Implement new feature",
+    "description": "Add user profile functionality",
+    "priority": "high",
+    "estimatedTime": 120
+  }'
+```
+
+#### PUT /tasks/:id
+```bash
+curl -X PUT http://localhost:3001/api/tasks/123456 \
+  -H "Content-Type: application/json" \
+  -d '{"status": "completed"}'
+```
 
 ### Query Parameters (GET /tasks)
 
