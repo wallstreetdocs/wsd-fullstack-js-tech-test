@@ -1,4 +1,4 @@
-# Task Analytics Dashboard
+# Tech Test: Task Analytics Dashboard
 
 > **Note**: This repository is used for internal technical candidate assessments and is not intended for production use.
 
