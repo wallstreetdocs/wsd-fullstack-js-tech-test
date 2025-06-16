@@ -53,8 +53,8 @@ cd frontend && npm run lint
 - **`/docs/TEST-REPORT.md`** - Template for candidate feedback reports
 
 ### Evaluation System
-- **`/docs/private/EVAL-INSTRUCTIONS.md`** - Comprehensive evaluation instructions for Claude Code
-- **`/docs/private/EVAL-REPORT.md`** - Detailed evaluation report template for interviewers
+- **Private evaluation files** - Stored separately from this public repository to prevent candidate access
+- **`/docs/TEST-REPORT.md`** - Template for candidate feedback reports
 
 ### Core Application Files
 - **Backend entry**: `/backend/src/index.js`
@@ -67,7 +67,7 @@ cd frontend && npm run lint
 
 ### Setup Process
 1. Checkout the candidate's branch
-2. Follow setup instructions in `/docs/private/EVAL-INSTRUCTIONS.md`
+2. Follow setup instructions in the private evaluation documentation
 3. Test that existing functionality still works
 4. Evaluate new functionality systematically
 
