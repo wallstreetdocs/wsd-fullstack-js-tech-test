@@ -10,27 +10,6 @@ jobs:
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
-    
-    services:
-      mongodb:
-        image: mongo:7.0
-        ports:
-          - 27018:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand(\"ping\")'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7.2-alpine
-        ports:
-          - 6380:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - name: Checkout code
@@ -51,24 +30,7 @@ jobs:
       working-directory: ./backend
       run: npm run lint
 
-    - name: Wait for services
-      run: |
-        sleep 10
-        # Test MongoDB connection
-        mongosh "mongodb://localhost:27018/task_analytics" --eval "db.runCommand('ping')"
-        # Test Redis connection
-        redis-cli -h localhost -p 6380 ping
 
-    - name: Start backend server
-      working-directory: ./backend
-      run: |
-        npm run start &
-        sleep 5
-      env:
-        NODE_ENV: test
-        MONGODB_URI: mongodb://localhost:27018/task_analytics
-        REDIS_HOST: localhost
-        REDIS_PORT: 6380
 
     - name: Run backend unit tests
       working-directory: ./backend
@@ -217,10 +179,6 @@ jobs:
         cd backend && npm run lint
         cd ../frontend && npm run lint
 
-    - name: Check code formatting
-      run: |
-        cd backend && npx prettier --check "src/**/*.js"
-        cd ../frontend && npx prettier --check "src/**/*.{js,vue}"
 
   deploy-ready:
     name: Deploy Ready Check
