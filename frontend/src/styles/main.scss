@@ -1,0 +1,235 @@
+// Variables
+:root {
+  --primary-color: #1976D2;
+  --secondary-color: #424242;
+  --accent-color: #82B1FF;
+  --success-color: #4CAF50;
+  --warning-color: #FFC107;
+  --error-color: #FF5252;
+  --info-color: #2196F3;
+}
+
+// Global styles
+.app-container {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 300;
+  margin-bottom: 2rem;
+  color: var(--primary-color);
+}
+
+// Task status colors
+.status-pending {
+  color: var(--warning-color) !important;
+}
+
+.status-in-progress {
+  color: var(--info-color) !important;
+}
+
+.status-completed {
+  color: var(--success-color) !important;
+}
+
+// Priority colors
+.priority-low {
+  color: var(--success-color) !important;
+}
+
+.priority-medium {
+  color: var(--warning-color) !important;
+}
+
+.priority-high {
+  color: var(--error-color) !important;
+}
+
+// Common card shadow
+.card-shadow {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+
+  &:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  }
+}
+
+// Metric cards
+.metric-card {
+  @extend .card-shadow;
+  
+  .metric-value {
+    font-size: 2.5rem;
+    font-weight: 300;
+    line-height: 1;
+  }
+
+  .metric-label {
+    font-size: 0.875rem;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .metric-change {
+    font-size: 0.75rem;
+    font-weight: 500;
+
+    &.positive {
+      color: var(--success-color);
+    }
+
+    &.negative {
+      color: var(--error-color);
+    }
+  }
+}
+
+// Task list
+.task-item {
+  @extend .card-shadow;
+  margin-bottom: 1rem;
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  .task-title {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  .task-meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    opacity: 0.7;
+    font-size: 0.875rem;
+  }
+}
+
+// Form styles
+.task-form {
+  .form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+  }
+}
+
+// Chart container
+.chart-container {
+  @extend .card-shadow;
+  padding: 1.5rem;
+  background: white;
+  border-radius: 8px;
+
+  .chart-title {
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+}
+
+// Activity feed
+.activity-feed {
+  .activity-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    .activity-icon {
+      margin-right: 1rem;
+      opacity: 0.7;
+    }
+
+    .activity-content {
+      flex: 1;
+
+      .activity-title {
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+      }
+
+      .activity-time {
+        font-size: 0.75rem;
+        opacity: 0.6;
+      }
+    }
+  }
+}
+
+// Connection status
+.connection-status {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  z-index: 1000;
+
+  &.connected {
+    background-color: rgba(76, 175, 80, 0.1);
+    color: var(--success-color);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+  }
+
+  &.disconnected {
+    background-color: rgba(255, 82, 82, 0.1);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+  }
+}
+
+// Notification styles
+.notification-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  max-width: 400px;
+  z-index: 2000;
+}
+
+// Responsive
+@media (max-width: 960px) {
+  .page-title {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .metric-card .metric-value {
+    font-size: 2rem;
+  }
+
+  .task-form .form-actions {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .task-meta {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.5rem !important;
+  }
+
+  .chart-container {
+    padding: 1rem;
+  }
+}
