@@ -1,10 +1,13 @@
 <template>
-  <div 
+  <div
     class="connection-status"
-    :class="{ connected: analyticsStore.connected, disconnected: !analyticsStore.connected }"
+    :class="{
+      connected: analyticsStore.connected,
+      disconnected: !analyticsStore.connected
+    }"
   >
-    <v-icon 
-      size="small" 
+    <v-icon
+      size="small"
       :color="analyticsStore.connected ? 'success' : 'error'"
       class="mr-1"
     >

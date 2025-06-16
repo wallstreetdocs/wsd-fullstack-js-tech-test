@@ -113,12 +113,7 @@
             </div>
             <v-menu>
               <template #activator="{ props }">
-                <v-btn
-                  icon
-                  size="small"
-                  v-bind="props"
-                  @click.stop
-                >
+                <v-btn icon size="small" v-bind="props" @click.stop>
                   <v-icon>mdi-dots-vertical</v-icon>
                 </v-btn>
               </template>
@@ -144,10 +139,7 @@
       </div>
     </div>
 
-    <task-form-dialog
-      v-model="showCreateDialog"
-      @save="handleSave"
-    />
+    <task-form-dialog v-model="showCreateDialog" @save="handleSave" />
 
     <task-form-dialog
       v-model="showEditDialog"
@@ -246,24 +238,32 @@ async function confirmDelete() {
 
 function getStatusColor(status) {
   switch (status) {
-    case 'pending': return 'warning'
-    case 'in-progress': return 'info'
-    case 'completed': return 'success'
-    default: return 'grey'
+    case 'pending':
+      return 'warning'
+    case 'in-progress':
+      return 'info'
+    case 'completed':
+      return 'success'
+    default:
+      return 'grey'
   }
 }
 
 function getPriorityColor(priority) {
   switch (priority) {
-    case 'low': return 'success'
-    case 'medium': return 'warning'
-    case 'high': return 'error'
-    default: return 'grey'
+    case 'low':
+      return 'success'
+    case 'medium':
+      return 'warning'
+    case 'high':
+      return 'error'
+    default:
+      return 'grey'
   }
 }
 
 function formatStatus(status) {
-  return status.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())
+  return status.replace('-', ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
 function formatPriority(priority) {

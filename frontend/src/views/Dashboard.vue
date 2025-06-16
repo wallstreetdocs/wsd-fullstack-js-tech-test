@@ -2,7 +2,7 @@
 /**
  * @fileoverview Main dashboard view with metrics overview and analytics charts
  * @component Dashboard
- * @description Displays key performance indicators, task status/priority charts, 
+ * @description Displays key performance indicators, task status/priority charts,
  * quick task list, and recent activity in a responsive grid layout
  */
 -->
@@ -51,7 +51,10 @@
         <v-card class="chart-container">
           <v-card-title>Tasks by Status</v-card-title>
           <v-card-text>
-            <task-status-chart :data="analyticsStore.statusData" :show-legend="true" />
+            <task-status-chart
+              :data="analyticsStore.statusData"
+              :show-legend="true"
+            />
           </v-card-text>
         </v-card>
       </v-col>

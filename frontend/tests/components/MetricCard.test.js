@@ -5,7 +5,7 @@ import MetricCard from '../../src/components/MetricCard.vue'
 // Mock Vuetify components
 const VCard = { template: '<div class="v-card"><slot /></div>' }
 const VCardText = { template: '<div class="v-card-text"><slot /></div>' }
-const VIcon = { 
+const VIcon = {
   template: '<i class="v-icon"><slot /></i>',
   props: ['color', 'size']
 }

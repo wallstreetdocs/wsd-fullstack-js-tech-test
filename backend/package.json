@@ -7,9 +7,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test 'tests/**/*.test.js'",
-    "test:unit": "node --test 'tests/models/*.test.js' 'tests/services/*.test.js' 'tests/middleware/*.test.js' 'tests/sockets/*.test.js' 'tests/config/*.test.js'",
-    "test:integration": "node --test tests/api.test.js",
+    "test": "node --test 'tests/middleware/*.test.js' 'tests/config/*.test.js' 'tests/routes/*.test.js' 'tests/models/*.unit.test.js' 'tests/services/*.unit.test.js' 'tests/services/*.logic.test.js' 'tests/sockets/*.logic.test.js' 'tests/index.unit.test.js' 'tests/unit-coverage.test.js'",
+    "test:unit": "node --test 'tests/middleware/*.test.js' 'tests/config/*.test.js' 'tests/routes/*.test.js' 'tests/models/*.unit.test.js' 'tests/services/*.unit.test.js' 'tests/services/*.logic.test.js' 'tests/sockets/*.logic.test.js' 'tests/index.unit.test.js' 'tests/unit-coverage.test.js'",
+    "test:integration": "node --test tests/api.test.js tests/models/Task.test.js tests/services/analyticsService.test.js tests/sockets/socketHandlers.test.js",
     "test:all": "node --test",
     "test:coverage": "c8 --reporter=text --reporter=html --reporter=lcov node --test 'tests/middleware/*.test.js' 'tests/config/*.test.js' 'tests/routes/*.test.js' 'tests/models/*.unit.test.js' 'tests/services/*.unit.test.js' 'tests/services/*.logic.test.js' 'tests/sockets/*.logic.test.js' 'tests/index.unit.test.js' 'tests/unit-coverage.test.js'",
     "test:coverage:db": "c8 --reporter=text --reporter=html --reporter=lcov node --test 'tests/models/*.test.js' 'tests/services/*.test.js'",

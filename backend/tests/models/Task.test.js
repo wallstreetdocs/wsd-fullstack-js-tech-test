@@ -3,16 +3,22 @@ import assert from 'node:assert';
 import mongoose from 'mongoose';
 import Task from '../../src/models/Task.js';
 
-describe('Task Model Tests', () => {
+describe('Task Model Integration Tests', () => {
   before(async () => {
-    // Connect to test database
-    await mongoose.connect('mongodb://localhost:27018/task_analytics_test');
+    // Connect to test database only if not already connected
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect('mongodb://localhost:27018/task_analytics_test', {
+        serverSelectionTimeoutMS: 5000
+      });
+    }
   });
 
   after(async () => {
     // Clean up test data and close connection
-    await Task.deleteMany({});
-    await mongoose.connection.close();
+    if (mongoose.connection.readyState === 1) {
+      await Task.deleteMany({});
+      await mongoose.connection.close();
+    }
   });
 
   test('should create a task with required fields', async () => {

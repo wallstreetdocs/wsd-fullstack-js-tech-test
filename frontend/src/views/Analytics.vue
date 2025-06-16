@@ -1,7 +1,7 @@
 <!--
 /**
  * @fileoverview Analytics view with comprehensive task metrics and visualizations
- * @component Analytics  
+ * @component Analytics
  * @description Detailed analytics page showing task metrics, charts, completion rates,
  * and real-time connection status with live data updates
  */
@@ -20,18 +20,14 @@
         <v-icon start>mdi-wifi</v-icon>
         Live
       </v-chip>
-      <v-chip
-        v-else
-        color="error"
-        variant="flat"
-        size="small"
-      >
+      <v-chip v-else color="error" variant="flat" size="small">
         <v-icon start>mdi-wifi-off</v-icon>
         Offline
       </v-chip>
       <v-spacer></v-spacer>
       <small v-if="analyticsStore.analytics.lastUpdated" class="text-grey">
-        Last updated: {{ formatLastUpdated(analyticsStore.analytics.lastUpdated) }}
+        Last updated:
+        {{ formatLastUpdated(analyticsStore.analytics.lastUpdated) }}
       </small>
     </div>
 
@@ -39,7 +35,9 @@
       <v-col cols="12" md="4">
         <metric-card
           title="Average Completion Time"
-          :value="formatCompletionTime(analyticsStore.analytics.averageCompletionTime)"
+          :value="
+            formatCompletionTime(analyticsStore.analytics.averageCompletionTime)
+          "
           icon="mdi-clock"
           color="info"
         />
@@ -112,7 +110,8 @@
                 </template>
                 <v-list-item-title>Pending Tasks</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ analyticsStore.analytics.tasksByStatus.pending }} tasks waiting to be started
+                  {{ analyticsStore.analytics.tasksByStatus.pending }} tasks
+                  waiting to be started
                 </v-list-item-subtitle>
               </v-list-item>
               <v-list-item>
@@ -121,7 +120,8 @@
                 </template>
                 <v-list-item-title>In Progress</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ analyticsStore.analytics.tasksByStatus['in-progress'] }} tasks currently being worked on
+                  {{ analyticsStore.analytics.tasksByStatus['in-progress'] }}
+                  tasks currently being worked on
                 </v-list-item-subtitle>
               </v-list-item>
               <v-list-item>
@@ -130,7 +130,8 @@
                 </template>
                 <v-list-item-title>Completed</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ analyticsStore.analytics.tasksByStatus.completed }} tasks finished
+                  {{ analyticsStore.analytics.tasksByStatus.completed }} tasks
+                  finished
                 </v-list-item-subtitle>
               </v-list-item>
             </v-list>
@@ -166,7 +167,8 @@
                 </template>
                 <v-list-item-title>High Priority</v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ analyticsStore.analytics.tasksByPriority.high }} tasks requiring immediate attention
+                  {{ analyticsStore.analytics.tasksByPriority.high }} tasks
+                  requiring immediate attention
                 </v-list-item-subtitle>
               </v-list-item>
             </v-list>
@@ -190,7 +192,7 @@ function formatLastUpdated(timestamp) {
   const now = new Date()
   const updated = new Date(timestamp)
   const diffInSeconds = Math.floor((now - updated) / 1000)
-  
+
   if (diffInSeconds < 10) {
     return 'just now'
   } else if (diffInSeconds < 60) {
@@ -207,14 +209,14 @@ function formatCompletionTime(hours) {
   if (!hours || hours <= 0) {
     return 'N/A'
   }
-  
+
   if (hours < 1) {
     const minutes = Math.round(hours * 60)
     return `${minutes}m`
   } else if (hours < 24) {
     return `${hours}h`
   } else {
-    const days = Math.round(hours / 24 * 10) / 10
+    const days = Math.round((hours / 24) * 10) / 10
     return `${days}d`
   }
 }

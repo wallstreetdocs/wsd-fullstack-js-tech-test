@@ -31,20 +31,20 @@ export const useTaskStore = defineStore('tasks', () => {
     sortOrder: 'desc'
   })
 
-  const pendingTasks = computed(() => 
-    tasks.value.filter(task => task.status === 'pending')
+  const pendingTasks = computed(() =>
+    tasks.value.filter((task) => task.status === 'pending')
   )
 
-  const inProgressTasks = computed(() => 
-    tasks.value.filter(task => task.status === 'in-progress')
+  const inProgressTasks = computed(() =>
+    tasks.value.filter((task) => task.status === 'in-progress')
   )
 
-  const completedTasks = computed(() => 
-    tasks.value.filter(task => task.status === 'completed')
+  const completedTasks = computed(() =>
+    tasks.value.filter((task) => task.status === 'completed')
   )
 
-  const highPriorityTasks = computed(() => 
-    tasks.value.filter(task => task.priority === 'high')
+  const highPriorityTasks = computed(() =>
+    tasks.value.filter((task) => task.priority === 'high')
   )
 
   const tasksByStatus = computed(() => ({
@@ -54,9 +54,9 @@ export const useTaskStore = defineStore('tasks', () => {
   }))
 
   const tasksByPriority = computed(() => ({
-    low: tasks.value.filter(task => task.priority === 'low').length,
-    medium: tasks.value.filter(task => task.priority === 'medium').length,
-    high: tasks.value.filter(task => task.priority === 'high').length
+    low: tasks.value.filter((task) => task.priority === 'low').length,
+    medium: tasks.value.filter((task) => task.priority === 'medium').length,
+    high: tasks.value.filter((task) => task.priority === 'high').length
   }))
 
   /**
@@ -78,12 +78,12 @@ export const useTaskStore = defineStore('tasks', () => {
         ...params
       }
 
-      Object.keys(queryParams).forEach(key => {
+      Object.keys(queryParams).forEach((key) => {
         if (!queryParams[key]) delete queryParams[key]
       })
 
       const response = await apiClient.getTasks(queryParams)
-      
+
       tasks.value = response.data.tasks
       pagination.value = response.data.pagination
     } catch (err) {
@@ -130,7 +130,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
     try {
       const response = await apiClient.createTask(taskData)
-      
+
       tasks.value.unshift(response.data)
       pagination.value.total++
 
@@ -158,8 +158,8 @@ export const useTaskStore = defineStore('tasks', () => {
 
     try {
       const response = await apiClient.updateTask(id, updates)
-      
-      const index = tasks.value.findIndex(task => task._id === id)
+
+      const index = tasks.value.findIndex((task) => task._id === id)
       if (index !== -1) {
         tasks.value[index] = response.data
       }
@@ -187,8 +187,8 @@ export const useTaskStore = defineStore('tasks', () => {
 
     try {
       await apiClient.deleteTask(id)
-      
-      const index = tasks.value.findIndex(task => task._id === id)
+
+      const index = tasks.value.findIndex((task) => task._id === id)
       if (index !== -1) {
         tasks.value.splice(index, 1)
         pagination.value.total--
@@ -230,27 +230,29 @@ export const useTaskStore = defineStore('tasks', () => {
    */
   function handleTaskUpdate(data) {
     const { action, task } = data
-    
+
     switch (action) {
       case 'created':
-        if (!tasks.value.find(t => t._id === task._id)) {
+        if (!tasks.value.find((t) => t._id === task._id)) {
           tasks.value.unshift(task)
           pagination.value.total++
         }
         break
-      case 'updated':
-        const index = tasks.value.findIndex(t => t._id === task._id)
+      case 'updated': {
+        const index = tasks.value.findIndex((t) => t._id === task._id)
         if (index !== -1) {
           tasks.value[index] = task
         }
         break
-      case 'deleted':
-        const deleteIndex = tasks.value.findIndex(t => t._id === task._id)
+      }
+      case 'deleted': {
+        const deleteIndex = tasks.value.findIndex((t) => t._id === task._id)
         if (deleteIndex !== -1) {
           tasks.value.splice(deleteIndex, 1)
           pagination.value.total--
         }
         break
+      }
     }
   }
 

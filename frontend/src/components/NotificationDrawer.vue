@@ -1,15 +1,15 @@
 <template>
   <v-navigation-drawer
     :model-value="modelValue"
-    @update:model-value="$emit('update:modelValue', $event)"
     location="right"
     temporary
     width="400"
+    @update:model-value="$emit('update:modelValue', $event)"
   >
     <v-toolbar color="primary" dark>
       <v-toolbar-title>Notifications</v-toolbar-title>
       <v-spacer></v-spacer>
-      <v-btn icon @click="$emit('clear-all')" title="Clear all">
+      <v-btn icon title="Clear all" @click="$emit('clear-all')">
         <v-icon>mdi-delete-sweep</v-icon>
       </v-btn>
       <v-btn icon @click="$emit('update:modelValue', false)">
@@ -40,11 +40,7 @@
         </v-list-item-subtitle>
 
         <template #append>
-          <v-btn
-            icon
-            size="small"
-            @click="$emit('remove', notification.id)"
-          >
+          <v-btn icon size="small" @click="$emit('remove', notification.id)">
             <v-icon>mdi-close</v-icon>
           </v-btn>
         </template>
@@ -54,9 +50,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-
-const props = defineProps({
+defineProps({
   modelValue: Boolean,
   notifications: {
     type: Array,
@@ -68,19 +62,27 @@ defineEmits(['update:modelValue', 'clear-all', 'remove'])
 
 function getNotificationIcon(type) {
   switch (type) {
-    case 'error': return 'mdi-alert-circle'
-    case 'warning': return 'mdi-alert'
-    case 'success': return 'mdi-check-circle'
-    default: return 'mdi-information'
+    case 'error':
+      return 'mdi-alert-circle'
+    case 'warning':
+      return 'mdi-alert'
+    case 'success':
+      return 'mdi-check-circle'
+    default:
+      return 'mdi-information'
   }
 }
 
 function getNotificationColor(type) {
   switch (type) {
-    case 'error': return 'error'
-    case 'warning': return 'warning'
-    case 'success': return 'success'
-    default: return 'info'
+    case 'error':
+      return 'error'
+    case 'warning':
+      return 'warning'
+    case 'success':
+      return 'success'
+    default:
+      return 'info'
   }
 }
 

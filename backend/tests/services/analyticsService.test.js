@@ -4,10 +4,14 @@ import mongoose from 'mongoose';
 import AnalyticsService from '../../src/services/analyticsService.js';
 import Task from '../../src/models/Task.js';
 
-describe('Analytics Service Tests', () => {
+describe('Analytics Service Integration Tests', () => {
   before(async () => {
-    // Connect to test database
-    await mongoose.connect('mongodb://localhost:27018/task_analytics_test');
+    // Connect to test database only if not already connected
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect('mongodb://localhost:27018/task_analytics_test', {
+        serverSelectionTimeoutMS: 5000
+      });
+    }
   });
 
   beforeEach(async () => {
@@ -18,9 +22,11 @@ describe('Analytics Service Tests', () => {
   });
 
   after(async () => {
-    // Clean up and close connection
-    await Task.deleteMany({});
-    await mongoose.connection.close();
+    // Clean up test data and close connection
+    if (mongoose.connection.readyState === 1) {
+      await Task.deleteMany({});
+      await mongoose.connection.close();
+    }
   });
 
   test('should calculate metrics with no tasks', async () => {

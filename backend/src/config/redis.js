@@ -18,7 +18,7 @@ const redisClient = new Redis({
   port: process.env.REDIS_PORT || 6380,
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
-  lazyConnect: true,
+  lazyConnect: true
 });
 
 redisClient.on('connect', () => {

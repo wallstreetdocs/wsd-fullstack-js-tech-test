@@ -92,10 +92,10 @@ router.get('/tasks', async (req, res, next) => {
 router.get('/tasks/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const cacheKey = `task:${id}`;
     const cached = await redisClient.get(cacheKey);
-    
+
     if (cached) {
       return res.json({
         success: true,
@@ -104,7 +104,7 @@ router.get('/tasks/:id', async (req, res, next) => {
     }
 
     const task = await Task.findById(id);
-    
+
     if (!task) {
       return res.status(404).json({
         success: false,

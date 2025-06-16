@@ -15,7 +15,7 @@
         </g>
       </svg>
     </div>
-    
+
     <div v-if="showLegend" class="legend mt-4">
       <div
         v-for="item in data"
@@ -78,11 +78,9 @@ const props = defineProps({
   }
 })
 
-const hasData = computed(() => 
-  props.data.some(item => item.value > 0)
-)
+const hasData = computed(() => props.data.some((item) => item.value > 0))
 
-const totalValue = computed(() => 
+const totalValue = computed(() =>
   props.data.reduce((sum, item) => sum + item.value, 0)
 )
 
@@ -93,32 +91,32 @@ const chartSegments = computed(() => {
   const radius = 80
 
   return props.data
-    .filter(item => item.value > 0)
-    .map(item => {
+    .filter((item) => item.value > 0)
+    .map((item) => {
       const percentage = item.value / totalValue.value
       const angle = percentage * 2 * Math.PI
-      
+
       const x1 = Math.cos(currentAngle) * radius
       const y1 = Math.sin(currentAngle) * radius
       const x2 = Math.cos(currentAngle + angle) * radius
       const y2 = Math.sin(currentAngle + angle) * radius
-      
+
       const largeArcFlag = angle > Math.PI ? 1 : 0
-      
+
       const pathData = [
-        `M 0 0`,
+        'M 0 0',
         `L ${x1} ${y1}`,
         `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
         'Z'
       ].join(' ')
-      
+
       const result = {
         path: pathData,
         color: item.color,
         value: item.value,
         name: item.name
       }
-      
+
       currentAngle += angle
       return result
     })

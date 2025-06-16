@@ -39,7 +39,7 @@
         </g>
       </svg>
     </div>
-    
+
     <div v-if="showLegend" class="legend mt-4">
       <div
         v-for="item in data"
@@ -86,12 +86,10 @@ const props = defineProps({
 const chartWidth = computed(() => props.width)
 const chartHeight = computed(() => props.height)
 
-const hasData = computed(() => 
-  props.data.some(item => item.value > 0)
-)
+const hasData = computed(() => props.data.some((item) => item.value > 0))
 
-const maxValue = computed(() => 
-  Math.max(...props.data.map(item => item.value), 1)
+const maxValue = computed(() =>
+  Math.max(...props.data.map((item) => item.value), 1)
 )
 
 const chartBars = computed(() => {

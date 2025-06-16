@@ -30,9 +30,9 @@ class ApiClient {
     const config = {
       headers: {
         'Content-Type': 'application/json',
-        ...options.headers,
+        ...options.headers
       },
-      ...options,
+      ...options
     }
 
     if (config.body && typeof config.body === 'object') {
@@ -44,7 +44,9 @@ class ApiClient {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`)
+        throw new Error(
+          data.message || `HTTP error! status: ${response.status}`
+        )
       }
 
       return data
@@ -62,7 +64,7 @@ class ApiClient {
    * @returns {Promise<Object>} API response data
    */
   async get(endpoint, params = {}) {
-    const query = new URLSearchParams(params).toString()
+    const query = new window.URLSearchParams(params).toString()
     const url = query ? `${endpoint}?${query}` : endpoint
     return this.request(url, { method: 'GET' })
   }
@@ -77,7 +79,7 @@ class ApiClient {
   async post(endpoint, data) {
     return this.request(endpoint, {
       method: 'POST',
-      body: data,
+      body: data
     })
   }
 
@@ -91,7 +93,7 @@ class ApiClient {
   async put(endpoint, data) {
     return this.request(endpoint, {
       method: 'PUT',
-      body: data,
+      body: data
     })
   }
 

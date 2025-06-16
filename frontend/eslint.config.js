@@ -22,16 +22,16 @@ export default [
       }
     },
     rules: {
-      'semi': ['error', 'never'],
-      'quotes': ['error', 'single'],
-      'indent': ['error', 2],
+      semi: ['error', 'never'],
+      quotes: ['error', 'single'],
+      indent: 'off',
       'comma-dangle': ['error', 'never'],
       'no-trailing-spaces': 'error',
       'eol-last': 'error',
       'no-multiple-empty-lines': ['error', { max: 1 }],
       'object-curly-spacing': ['error', 'always'],
       'array-bracket-spacing': ['error', 'never'],
-      'no-console': 'warn',
+      'no-console': 'off',
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'vue/multi-word-component-names': 'off',
       'vue/no-unused-vars': 'error'

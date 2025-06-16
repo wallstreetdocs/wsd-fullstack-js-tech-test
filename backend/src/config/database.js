@@ -21,9 +21,9 @@ dotenv.config();
 const connectMongoDB = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27018/task_analytics';
-    
+
     await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 5000
     });
 
     console.log('✅ MongoDB connected successfully');

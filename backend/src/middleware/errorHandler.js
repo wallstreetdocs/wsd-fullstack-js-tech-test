@@ -8,10 +8,10 @@
  * @param {Error} err - Error object
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
- * @param {Function} next - Express next function
+ * @param {Function} _next - Express next function (unused)
  * @returns {Object} JSON error response with appropriate status code
  */
-const errorHandler = (err, req, res, next) => {
+const errorHandler = (err, req, res, _next) => {
   console.error('Error:', err);
 
   if (err.name === 'ValidationError') {

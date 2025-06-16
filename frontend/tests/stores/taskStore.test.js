@@ -29,7 +29,7 @@ describe('Task Store', () => {
 
   it('should initialize with empty state', () => {
     const taskStore = useTaskStore()
-    
+
     expect(taskStore.tasks).toEqual([])
     expect(taskStore.loading).toBe(false)
     expect(taskStore.error).toBe(null)
@@ -39,38 +39,38 @@ describe('Task Store', () => {
 
   it('should calculate pending tasks correctly', () => {
     const taskStore = useTaskStore()
-    
+
     taskStore.tasks = [
       { _id: '1', status: 'pending' },
       { _id: '2', status: 'pending' },
       { _id: '3', status: 'completed' }
     ]
-    
+
     expect(taskStore.pendingTasks).toHaveLength(2)
   })
 
   it('should calculate completed tasks correctly', () => {
     const taskStore = useTaskStore()
-    
+
     taskStore.tasks = [
       { _id: '1', status: 'pending' },
       { _id: '2', status: 'completed' },
       { _id: '3', status: 'completed' }
     ]
-    
+
     expect(taskStore.completedTasks).toHaveLength(2)
   })
 
   it('should calculate tasks by status correctly', () => {
     const taskStore = useTaskStore()
-    
+
     taskStore.tasks = [
       { _id: '1', status: 'pending' },
       { _id: '2', status: 'in-progress' },
       { _id: '3', status: 'completed' },
       { _id: '4', status: 'completed' }
     ]
-    
+
     expect(taskStore.tasksByStatus).toEqual({
       pending: 1,
       'in-progress': 1,
@@ -80,14 +80,14 @@ describe('Task Store', () => {
 
   it('should calculate tasks by priority correctly', () => {
     const taskStore = useTaskStore()
-    
+
     taskStore.tasks = [
       { _id: '1', priority: 'low' },
       { _id: '2', priority: 'medium' },
       { _id: '3', priority: 'high' },
       { _id: '4', priority: 'high' }
     ]
-    
+
     expect(taskStore.tasksByPriority).toEqual({
       low: 1,
       medium: 1,

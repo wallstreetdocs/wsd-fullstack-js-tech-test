@@ -21,8 +21,8 @@ const vuetify = createVuetify({
   icons: {
     defaultSet: 'mdi',
     sets: {
-      mdi,
-    },
+      mdi
+    }
   },
   theme: {
     defaultTheme: 'light',
@@ -35,8 +35,8 @@ const vuetify = createVuetify({
           error: '#FF5252',
           info: '#2196F3',
           success: '#4CAF50',
-          warning: '#FFC107',
-        },
+          warning: '#FFC107'
+        }
       },
       dark: {
         colors: {
@@ -46,11 +46,11 @@ const vuetify = createVuetify({
           error: '#FF5252',
           info: '#2196F3',
           success: '#4CAF50',
-          warning: '#FFC107',
-        },
-      },
-    },
-  },
+          warning: '#FFC107'
+        }
+      }
+    }
+  }
 })
 
 export default vuetify

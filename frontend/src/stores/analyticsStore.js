@@ -32,15 +32,39 @@ export const useAnalyticsStore = defineStore('analytics', () => {
   const connected = ref(false)
 
   const statusData = computed(() => [
-    { name: 'Pending', value: analytics.value.tasksByStatus.pending, color: '#FFC107' },
-    { name: 'In Progress', value: analytics.value.tasksByStatus['in-progress'], color: '#2196F3' },
-    { name: 'Completed', value: analytics.value.tasksByStatus.completed, color: '#4CAF50' }
+    {
+      name: 'Pending',
+      value: analytics.value.tasksByStatus.pending,
+      color: '#FFC107'
+    },
+    {
+      name: 'In Progress',
+      value: analytics.value.tasksByStatus['in-progress'],
+      color: '#2196F3'
+    },
+    {
+      name: 'Completed',
+      value: analytics.value.tasksByStatus.completed,
+      color: '#4CAF50'
+    }
   ])
 
   const priorityData = computed(() => [
-    { name: 'Low', value: analytics.value.tasksByPriority.low, color: '#4CAF50' },
-    { name: 'Medium', value: analytics.value.tasksByPriority.medium, color: '#FFC107' },
-    { name: 'High', value: analytics.value.tasksByPriority.high, color: '#FF5252' }
+    {
+      name: 'Low',
+      value: analytics.value.tasksByPriority.low,
+      color: '#4CAF50'
+    },
+    {
+      name: 'Medium',
+      value: analytics.value.tasksByPriority.medium,
+      color: '#FFC107'
+    },
+    {
+      name: 'High',
+      value: analytics.value.tasksByPriority.high,
+      color: '#FF5252'
+    }
   ])
 
   /**
@@ -97,7 +121,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
    * @param {string} id - Notification ID
    */
   function removeNotification(id) {
-    const index = notifications.value.findIndex(n => n.id === id)
+    const index = notifications.value.findIndex((n) => n.id === id)
     if (index !== -1) {
       notifications.value.splice(index, 1)
     }
@@ -143,7 +167,10 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     })
 
     socket.on('task-update', (data) => {
-      console.log('📊 Task update detected, refreshing analytics...', data.action)
+      console.log(
+        '📊 Task update detected, refreshing analytics...',
+        data.action
+      )
       // Immediately request fresh analytics when a task is updated
       socket.emit('request-analytics')
     })

@@ -23,15 +23,15 @@ const server = createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-    methods: ["GET", "POST", "PUT", "DELETE"]
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
 
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true
 }));
 
@@ -67,7 +67,7 @@ setSocketHandlers(socketHandlers);
  */
 const gracefulShutdown = (signal) => {
   console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
-  
+
   server.close(() => {
     console.log('✅ HTTP server closed');
     process.exit(0);
@@ -99,7 +99,7 @@ const startServer = async () => {
 
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📊 Socket.IO server ready`);
+      console.log('📊 Socket.IO server ready');
       console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
 

@@ -25,15 +25,15 @@ class AnalyticsService {
     try {
       const cacheKey = 'task_metrics';
       const cached = await redisClient.get(cacheKey);
-      
+
       if (cached) {
         return JSON.parse(cached);
       }
 
       const metrics = await this.calculateMetrics();
-      
+
       await redisClient.setex(cacheKey, 10, JSON.stringify(metrics));
-      
+
       return metrics;
     } catch (error) {
       console.error('Error getting task metrics:', error);
@@ -143,20 +143,20 @@ class AnalyticsService {
    * @returns {Promise<number>} Average completion time in hours (rounded to 1 decimal)
    */
   static async getAverageCompletionTime() {
-    const completedTasks = await Task.find({ 
-      status: 'completed', 
-      completedAt: { $exists: true, $ne: null } 
+    const completedTasks = await Task.find({
+      status: 'completed',
+      completedAt: { $exists: true, $ne: null }
     }).select('createdAt completedAt');
 
     if (completedTasks.length === 0) return 0;
 
     // Filter out invalid tasks and calculate valid completion times
     const validCompletionTimes = [];
-    
+
     for (const task of completedTasks) {
       if (task.completedAt && task.createdAt) {
         const completionTime = task.completedAt.getTime() - task.createdAt.getTime();
-        
+
         // Only include positive completion times (completed after created)
         if (completionTime > 0) {
           validCompletionTimes.push(completionTime);
@@ -167,7 +167,7 @@ class AnalyticsService {
     if (validCompletionTimes.length === 0) return 0;
 
     const averageMilliseconds = validCompletionTimes.reduce((sum, time) => sum + time, 0) / validCompletionTimes.length;
-    
+
     // Convert to hours and round to 1 decimal place
     return Math.round((averageMilliseconds / (1000 * 60 * 60)) * 10) / 10;
   }
@@ -181,7 +181,7 @@ class AnalyticsService {
   static async getTasksCreatedToday() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return await Task.countDocuments({
       createdAt: { $gte: today }
     });
@@ -196,7 +196,7 @@ class AnalyticsService {
   static async getTasksCompletedToday() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return await Task.countDocuments({
       status: 'completed',
       completedAt: { $gte: today }

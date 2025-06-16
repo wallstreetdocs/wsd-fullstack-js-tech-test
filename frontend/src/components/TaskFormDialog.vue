@@ -1,9 +1,9 @@
 <template>
   <v-dialog
     :model-value="modelValue"
-    @update:model-value="$emit('update:modelValue', $event)"
     max-width="600"
     persistent
+    @update:model-value="$emit('update:modelValue', $event)"
   >
     <v-card>
       <v-card-title>
@@ -137,36 +137,39 @@ const statusOptions = [
 ]
 
 const titleRules = [
-  v => !!v || 'Title is required',
-  v => (v && v.length <= 200) || 'Title must be less than 200 characters'
+  (v) => !!v || 'Title is required',
+  (v) => (v && v.length <= 200) || 'Title must be less than 200 characters'
 ]
 
-const priorityRules = [
-  v => !!v || 'Priority is required'
-]
+const priorityRules = [(v) => !!v || 'Priority is required']
 
-const statusRules = [
-  v => !!v || 'Status is required'
-]
+const statusRules = [(v) => !!v || 'Status is required']
 
-watch(() => props.task, (newTask) => {
-  if (newTask) {
-    Object.assign(formData, {
-      title: newTask.title || '',
-      description: newTask.description || '',
-      priority: newTask.priority || 'medium',
-      status: newTask.status || 'pending',
-      estimatedTime: newTask.estimatedTime || null,
-      actualTime: newTask.actualTime || null
-    })
+watch(
+  () => props.task,
+  (newTask) => {
+    if (newTask) {
+      Object.assign(formData, {
+        title: newTask.title || '',
+        description: newTask.description || '',
+        priority: newTask.priority || 'medium',
+        status: newTask.status || 'pending',
+        estimatedTime: newTask.estimatedTime || null,
+        actualTime: newTask.actualTime || null
+      })
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.modelValue,
+  (show) => {
+    if (show && !props.task) {
+      resetForm()
+    }
   }
-}, { immediate: true })
-
-watch(() => props.modelValue, (show) => {
-  if (show && !props.task) {
-    resetForm()
-  }
-})
+)
 
 function resetForm() {
   Object.assign(formData, {
@@ -191,10 +194,10 @@ async function save() {
   if (!form.value?.validate()) return
 
   loading.value = true
-  
+
   try {
     const taskData = { ...formData }
-    
+
     if (taskData.estimatedTime === '') taskData.estimatedTime = null
     if (taskData.actualTime === '') taskData.actualTime = null
 
