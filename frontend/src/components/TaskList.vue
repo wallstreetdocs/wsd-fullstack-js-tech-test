@@ -18,6 +18,25 @@
         <v-icon left>mdi-plus</v-icon>
         New Task
       </v-btn>
+      <template v-if="enableExport">
+        <div class="ml-2"></div>
+        <v-menu>
+          <template v-slot:activator="{ props }">
+            <v-btn color="primary" v-bind="props">
+              <v-icon left>mdi-download</v-icon>
+              Export Tasks
+            </v-btn>
+          </template>
+          <v-list>
+            <v-list-item @click="exportTasks('csv')">
+              <v-list-item-title>CSV Format</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="exportTasks('json')">
+              <v-list-item-title>JSON Format</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
+      </template>
     </div>
 
     <v-card class="mb-4">
@@ -164,9 +183,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, defineProps } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+
+const props = defineProps({
+  enableExport: {
+    type: Boolean,
+    default: false
+  }
+})
 
 const taskStore = useTaskStore()
 
@@ -272,6 +298,49 @@ function formatPriority(priority) {
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString()
+}
+
+async function exportTasks(format) {
+  try {
+    // Show loading state
+    window.alert(`Exporting tasks in ${format} format...`);
+    
+    // Get current filters from the component state
+    const filterParams = {
+      status: filters.status,
+      priority: filters.priority,
+      sortBy: filters.sortBy,
+      sortOrder: filters.sortOrder
+    };
+    
+    // Get data from API as blob using taskStore
+    const blob = await taskStore.exportTasks(format, filterParams);
+    
+    // Create filename with date
+    const date = new Date().toISOString().split('T')[0];
+    const extension = format === 'csv' ? 'csv' : 'json';
+    const filename = `tasks_export_${date}.${extension}`;
+    
+    // Create download link
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    
+    // Clean up
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    // Success message
+    window.alert(`Tasks exported successfully as ${filename}`);
+  } catch (error) {
+    console.error('Export failed:', error);
+    window.alert(`Export failed: ${error.message}`);
+  }
 }
 
 onMounted(() => {

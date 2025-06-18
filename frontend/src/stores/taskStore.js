@@ -272,6 +272,29 @@ export const useTaskStore = defineStore('tasks', () => {
     socket.off('task-update', handleTaskUpdate)
   }
 
+  /**
+   * Exports tasks in specified format with current filters
+   * @async
+   * @function exportTasks
+   * @param {string} format - Export format ('csv' or 'json')
+   * @returns {Promise<Blob>} File blob for download
+   */
+  async function exportTasks(format, filterParams) {
+    loading.value = true
+    error.value = null
+
+    try {
+      // Return the result from apiClient.exportTasks
+      return await apiClient.exportTasks(format, filterParams)
+    } catch (err) {
+      error.value = err.message
+      console.error('Error exporting tasks:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     tasks,
     loading,
@@ -293,6 +316,7 @@ export const useTaskStore = defineStore('tasks', () => {
     setPage,
     handleTaskUpdate,
     initializeSocketListeners,
-    cleanup
+    cleanup,
+    exportTasks
   }
 })
