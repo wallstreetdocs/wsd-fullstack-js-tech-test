@@ -279,16 +279,13 @@ export const useTaskStore = defineStore('tasks', () => {
    * @param {string} format - Export format ('csv' or 'json')
    * @returns {Promise<Blob>} File blob for download
    */
-  async function exportTasks(format, filterParams) {
+  async function exportTasks(format) {
     loading.value = true
     error.value = null
 
     try {
       const queryParams = {
-        page: pagination.value.page,
-        limit: pagination.value.limit,
         ...filters.value,
-        ...filterParams
       }
 
       Object.keys(queryParams).forEach((key) => {

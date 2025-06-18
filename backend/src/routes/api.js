@@ -275,14 +275,15 @@ router.get('/analytics', async (req, res, next) => {
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
+
+    const { format, filters } = req.body;
+
     const {
-      page = 1,
-      limit = 10,
       status,
       priority,
       sortBy = 'createdAt',
       sortOrder = 'desc'
-    } = req.query;
+    } = filters;
 
     const query = {};
     if (status) query.status = status;
@@ -293,13 +294,9 @@ router.post('/exportTasks', async (req, res, next) => {
 
     const tasks = await Task.find(query)
       .sort(sort)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
       .exec();
 
     const total = await Task.countDocuments(query);
-    
-    const { format, filters } = req.body;
 
     // Log filters for debugging
     console.log('Export request:', { format, filters });

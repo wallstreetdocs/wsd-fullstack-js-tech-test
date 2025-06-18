@@ -305,16 +305,8 @@ async function exportTasks(format) {
     // Show loading state
     window.alert(`Exporting tasks in ${format} format...`);
     
-    // Get current filters from the component state
-    const filterParams = {
-      status: filters.status,
-      priority: filters.priority,
-      sortBy: filters.sortBy,
-      sortOrder: filters.sortOrder
-    };
-    
     // Get data from API as blob using taskStore
-    const blob = await taskStore.exportTasks(format, filterParams);
+    const blob = await taskStore.exportTasks(format);
     
     // Create filename with date
     const date = new Date().toISOString().split('T')[0];
