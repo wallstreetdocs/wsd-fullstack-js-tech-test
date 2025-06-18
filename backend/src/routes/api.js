@@ -265,6 +265,95 @@ router.get('/analytics', async (req, res, next) => {
 });
 
 /**
+ * POST /exportTasks - Export tasks in JSON or CSV format
+ * @name exportTasks
+ * @function
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.format - Export format ('csv' or 'json')
+ * @param {Object} req.body.filters - Filter parameters
+ * @returns {File} Exported tasks in requested format
+ */
+router.post('/exportTasks', async (req, res, next) => {
+  try {
+    const { format, filters } = req.body;
+    
+    // Mock data - normally you would fetch this from DB with filters
+    const mockTasks = [
+      {
+        _id: '60d21b4667d0d8992e610c85',
+        title: 'Complete project documentation',
+        description: 'Write comprehensive documentation for the API endpoints',
+        status: 'pending',
+        priority: 'high',
+        createdAt: '2023-06-10T08:30:00.000Z',
+        updatedAt: '2023-06-10T08:30:00.000Z'
+      },
+      {
+        _id: '60d21b4667d0d8992e610c86',
+        title: 'Fix login bug',
+        description: 'Address the authentication issue on mobile devices',
+        status: 'in-progress',
+        priority: 'medium',
+        createdAt: '2023-06-11T09:15:00.000Z',
+        updatedAt: '2023-06-12T14:20:00.000Z'
+      },
+      {
+        _id: '60d21b4667d0d8992e610c87',
+        title: 'Deploy to production',
+        description: 'Complete final testing and deploy to production servers',
+        status: 'completed',
+        priority: 'high',
+        createdAt: '2023-06-12T10:00:00.000Z',
+        updatedAt: '2023-06-14T16:45:00.000Z',
+        completedAt: '2023-06-14T16:45:00.000Z'
+      }
+    ];
+    
+    // Log filters for debugging
+    console.log('Export request:', { format, filters });
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
+      const rows = mockTasks.map(task => [
+        task._id,
+        task.title,
+        task.description || '',
+        task.status,
+        task.priority,
+        task.createdAt,
+        task.updatedAt,
+        task.completedAt || ''
+      ]);
+      
+      const csvContent = [
+        headers.join(','), 
+        ...rows.map(row => 
+          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
+            .join(',')
+        )
+      ].join('\n');
+      
+      // Set headers for CSV download
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=tasks_export.csv');
+      
+      // Send CSV response
+      return res.send(csvContent);
+    } else {
+      // Set headers for JSON download
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename=tasks_export.json');
+      
+      // Send JSON response
+      return res.send(JSON.stringify(mockTasks, null, 2));
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /health - Health check endpoint
  * @name HealthCheck
  * @function

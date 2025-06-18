@@ -22,10 +22,11 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} [options={}] - Fetch options
-   * @returns {Promise<Object>} API response data
+   * @param {string} [responseFormat=null] - Optional response format ('blob', 'text', etc.)
+   * @returns {Promise<Object|Blob|string>} API response data
    * @throws {Error} Network or API errors
    */
-  async request(endpoint, options = {}) {
+  async request(endpoint, options = {}, responseFormat = null) {
     const url = `${this.baseURL}${endpoint}`
     const config = {
       headers: {
@@ -41,15 +42,31 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config)
-      const data = await response.json()
-
+      
       if (!response.ok) {
-        throw new Error(
-          data.message || `HTTP error! status: ${response.status}`
-        )
+        // Try to get error message from response
+        const errorText = await response.text()
+        let errorMessage
+        try {
+          // Try to parse as JSON
+          const errorData = JSON.parse(errorText)
+          errorMessage = errorData.message
+        } catch {
+          // Use text as is
+          errorMessage = errorText
+        }
+        throw new Error(errorMessage || `HTTP error! status: ${response.status}`)
       }
-
-      return data
+      
+      // Process response based on format
+      if (responseFormat === 'blob') {
+        return await response.blob()
+      } else if (responseFormat === 'text') {
+        return await response.text()
+      } else {
+        // Default to JSON
+        return await response.json()
+      }
     } catch (error) {
       console.error('API Request failed:', error)
       throw error
@@ -74,13 +91,14 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} data - Request body data
-   * @returns {Promise<Object>} API response data
+   * @param {string} [responseFormat=null] - Optional response format ('blob', 'text', etc.)
+   * @returns {Promise<Object|Blob|string>} API response data
    */
-  async post(endpoint, data) {
+  async post(endpoint, data, responseFormat = null) {
     return this.request(endpoint, {
       method: 'POST',
       body: data
-    })
+    }, responseFormat)
   }
 
   /**
@@ -174,6 +192,26 @@ class ApiClient {
    */
   async getHealth() {
     return this.get('/health')
+  }
+
+  /**
+   * Exports tasks in specified format (CSV or JSON)
+   * @async
+   * @param {string} format - Export format ('csv' or 'json')
+   * @param {Object} [filters={}] - Filter parameters (status, priority, sortBy, sortOrder)
+   * @returns {Promise<Blob>} File data for download
+   */
+  async exportTasks(format, filters = {}) {
+    // Set Accept header based on format
+    const acceptHeader = format === 'csv' ? 'text/csv' : 'application/json';
+    
+    return this.post('/exportTasks', 
+      {
+        format,
+        filters
+      }, 
+      'blob' // Request response as blob
+    );
   }
 }
 
