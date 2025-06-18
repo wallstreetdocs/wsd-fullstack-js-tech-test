@@ -48,7 +48,7 @@
 
     <v-row class="mt-4">
       <v-col cols="12" md="6">
-        <v-card class="chart-container">
+        <v-card class="chart-container equal-height-chart">
           <v-card-title>Tasks by Status</v-card-title>
           <v-card-text>
             <task-status-chart
@@ -59,7 +59,7 @@
         </v-card>
       </v-col>
       <v-col cols="12" md="6">
-        <v-card class="chart-container">
+        <v-card class="chart-container equal-height-chart">
           <v-card-title>Tasks by Priority</v-card-title>
           <v-card-text>
             <task-priority-chart :data="analyticsStore.priorityData" />
@@ -96,3 +96,17 @@ onMounted(() => {
   taskStore.fetchTasks({ limit: 5 })
 })
 </script>
+
+<style scoped>
+.equal-height-chart {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.equal-height-chart .v-card-text {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+</style>
