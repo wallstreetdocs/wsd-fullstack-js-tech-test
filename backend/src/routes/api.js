@@ -275,47 +275,39 @@ router.get('/analytics', async (req, res, next) => {
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      priority,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const query = {};
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    const tasks = await Task.find(query)
+      .sort(sort)
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .exec();
+
+    const total = await Task.countDocuments(query);
+    
     const { format, filters } = req.body;
-    
-    // Mock data - normally you would fetch this from DB with filters
-    const mockTasks = [
-      {
-        _id: '60d21b4667d0d8992e610c85',
-        title: 'Complete project documentation',
-        description: 'Write comprehensive documentation for the API endpoints',
-        status: 'pending',
-        priority: 'high',
-        createdAt: '2023-06-10T08:30:00.000Z',
-        updatedAt: '2023-06-10T08:30:00.000Z'
-      },
-      {
-        _id: '60d21b4667d0d8992e610c86',
-        title: 'Fix login bug',
-        description: 'Address the authentication issue on mobile devices',
-        status: 'in-progress',
-        priority: 'medium',
-        createdAt: '2023-06-11T09:15:00.000Z',
-        updatedAt: '2023-06-12T14:20:00.000Z'
-      },
-      {
-        _id: '60d21b4667d0d8992e610c87',
-        title: 'Deploy to production',
-        description: 'Complete final testing and deploy to production servers',
-        status: 'completed',
-        priority: 'high',
-        createdAt: '2023-06-12T10:00:00.000Z',
-        updatedAt: '2023-06-14T16:45:00.000Z',
-        completedAt: '2023-06-14T16:45:00.000Z'
-      }
-    ];
-    
+
     // Log filters for debugging
     console.log('Export request:', { format, filters });
     
     if (format === 'csv') {
       // Create CSV content
       const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
-      const rows = mockTasks.map(task => [
+      const rows = tasks.map(task => [
         task._id,
         task.title,
         task.description || '',
@@ -346,7 +338,7 @@ router.post('/exportTasks', async (req, res, next) => {
       res.setHeader('Content-Disposition', 'attachment; filename=tasks_export.json');
       
       // Send JSON response
-      return res.send(JSON.stringify(mockTasks, null, 2));
+      return res.send(JSON.stringify(tasks, null, 2));
     }
   } catch (error) {
     next(error);

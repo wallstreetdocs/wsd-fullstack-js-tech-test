@@ -284,8 +284,19 @@ export const useTaskStore = defineStore('tasks', () => {
     error.value = null
 
     try {
+      const queryParams = {
+        page: pagination.value.page,
+        limit: pagination.value.limit,
+        ...filters.value,
+        ...filterParams
+      }
+
+      Object.keys(queryParams).forEach((key) => {
+        if (!queryParams[key]) delete queryParams[key]
+      })
+      
       // Return the result from apiClient.exportTasks
-      return await apiClient.exportTasks(format, filterParams)
+      return await apiClient.exportTasks(format, queryParams)
     } catch (err) {
       error.value = err.message
       console.error('Error exporting tasks:', err)
