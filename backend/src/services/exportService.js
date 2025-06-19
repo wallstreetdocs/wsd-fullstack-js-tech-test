@@ -5,6 +5,8 @@
 
 import Task from '../models/Task.js';
 import ExportJob from '../models/ExportJob.js';
+import { redisClient } from '../config/redis.js';
+import crypto from 'crypto';
 
 class ExportService {
   /**
@@ -36,6 +38,37 @@ class ExportService {
    * @param {Function} progressCallback - Callback for progress updates
    * @returns {Promise<Object>} Completed export job
    */
+  /**
+   * Generate a cache key for an export job based on its parameters
+   * @param {Object} jobParams - Export job parameters
+   * @returns {string} Cache key
+   */
+  generateCacheKey(jobParams) {
+    const { format, filters } = jobParams;
+    // Create a deterministic string from the job parameters
+    const paramsString = JSON.stringify({
+      format,
+      filters: {
+        status: filters.status || null,
+        priority: filters.priority || null,
+        sortBy: filters.sortBy || 'createdAt',
+        sortOrder: filters.sortOrder || 'desc'
+      }
+    });
+    // Create a hash of the parameters string for a shorter key
+    return `export:${crypto.createHash('md5').update(paramsString).digest('hex')}`;
+  }
+
+  /**
+   * Get TTL for cache based on export size
+   * @param {number} totalItems - Total number of items in export
+   * @returns {number} TTL in seconds
+   */
+  getCacheTTL(totalItems) {
+    // 1 hour for standard exports, 24 hours for large exports
+    return totalItems > 1000 ? 86400 : 3600;
+  }
+
   async processExportJob(job, progressCallback) {
     try {
       console.log(`Starting export job processing: ${job._id}, format: ${job.format}`);
@@ -50,6 +83,33 @@ class ExportService {
       // Notify of job start
       if (progressCallback) {
         progressCallback(job);
+      }
+      
+      // Check cache first
+      const cacheKey = this.generateCacheKey(job);
+      console.log(`🔍 Checking cache with key: ${cacheKey}`);
+      const cachedResult = await redisClient.get(cacheKey);
+      
+      if (cachedResult) {
+        console.log(`🎯 CACHE HIT! Using cached export result for job ${job._id}`);
+        const cachedData = JSON.parse(cachedResult);
+        
+        // Update job with cached result
+        job.status = 'completed';
+        job.progress = 100;
+        job.totalItems = cachedData.totalItems;
+        job.processedItems = cachedData.totalItems;
+        job.result = Buffer.from(cachedData.result, 'base64');
+        job.filename = cachedData.filename;
+        await job.save();
+        
+        // Send final progress update
+        if (progressCallback) {
+          const completedJob = await ExportJob.findById(job._id);
+          progressCallback(completedJob);
+        }
+        
+        return job;
       }
       
       // Construct query from filters
@@ -188,6 +248,24 @@ class ExportService {
       job.filename = filename;
       await job.save();
       
+      // Cache the result for future identical exports
+      // Reuse the same cache key that was checked earlier
+      const cacheTTL = this.getCacheTTL(totalCount);
+      console.log(`💾 Caching export result with key: ${cacheKey}, TTL: ${cacheTTL}s`);
+      const cacheData = {
+        totalItems: totalCount,
+        result: result.toString('base64'), // Store buffer as base64 string
+        filename: filename
+      };
+      
+      try {
+        await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
+        console.log(`Cached export result for key ${cacheKey} with TTL ${cacheTTL}s`);
+      } catch (cacheError) {
+        // Log but don't fail if caching fails
+        console.error('Error caching export result:', cacheError);
+      }
+      
       console.log(`Export job ${job._id} completed successfully, file: ${filename}`);
       
       // Final progress update
@@ -207,6 +285,21 @@ class ExportService {
       }
       
       throw error;
+    }
+  }
+
+  /**
+   * Invalidate export cache for a specific format and filters
+   * @param {Object} params - Export parameters
+   * @returns {Promise<void>}
+   */
+  async invalidateExportCache(params) {
+    try {
+      const cacheKey = this.generateCacheKey(params);
+      await redisClient.del(cacheKey);
+      console.log(`🗑️ Invalidated export cache for key ${cacheKey}`);
+    } catch (error) {
+      console.error('Error invalidating export cache:', error);
     }
   }
 

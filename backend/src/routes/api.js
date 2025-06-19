@@ -150,6 +150,10 @@ router.post('/tasks', async (req, res, next) => {
     await task.save();
 
     await AnalyticsService.invalidateCache();
+    
+    // Invalidate export cache for all possible formats and filter combinations
+    await ExportService.invalidateExportCache({ format: 'csv' });
+    await ExportService.invalidateExportCache({ format: 'json' });
 
     // Broadcast real-time update
     if (socketHandlers) {
@@ -194,6 +198,10 @@ router.put('/tasks/:id', async (req, res, next) => {
 
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
+    
+    // Invalidate export cache for all possible formats and filter combinations
+    await ExportService.invalidateExportCache({ format: 'csv' });
+    await ExportService.invalidateExportCache({ format: 'json' });
 
     // Broadcast real-time update
     if (socketHandlers) {
@@ -232,6 +240,10 @@ router.delete('/tasks/:id', async (req, res, next) => {
 
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
+    
+    // Invalidate export cache for all possible formats and filter combinations
+    await ExportService.invalidateExportCache({ format: 'csv' });
+    await ExportService.invalidateExportCache({ format: 'json' });
 
     // Broadcast real-time update
     if (socketHandlers) {
