@@ -323,30 +323,10 @@ async function exportTasks(format) {
 
 async function handleDownloadExport(jobId) {
   try {
-    console.log('Starting download for job:', jobId);
+    console.log('TaskList download handler for job:', jobId);
     
-    // Get filename from store or generate default
-    const filename = taskStore.exportProgress.filename || 
-      `tasks_export_${new Date().toISOString().split('T')[0]}.${taskStore.exportProgress.format}`;
-    
-    // Get direct download URL
-    const downloadUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/exportTasks/${jobId}/download`;
-    console.log('Download URL:', downloadUrl);
-    
-    // Create and trigger download using a direct link
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = filename;
-    link.target = '_blank';
-    
-    // Trigger download
-    document.body.appendChild(link);
-    link.click();
-    
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(link);
-    }, 100);
+    // Use the store method to handle download
+    await taskStore.downloadExport(jobId);
     
     // Reset active status (but keep details visible for a while)
     setTimeout(() => {

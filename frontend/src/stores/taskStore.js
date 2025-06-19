@@ -355,11 +355,35 @@ export const useTaskStore = defineStore('tasks', () => {
    * @async
    * @function downloadExport
    * @param {string} jobId - Export job ID
-   * @returns {Promise<Blob>} File blob for download
+   * @returns {Promise<void>}
    */
   async function downloadExport(jobId) {
     try {
-      return await apiClient.downloadExport(jobId)
+      console.log('Store downloadExport called with jobId:', jobId)
+      
+      // Find the export job to get the filename
+      const job = exportHistory.value.find(j => j._id === jobId)
+      const filename = job?.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.${job?.format || 'csv'}`
+      
+      // Option 1: Use API client to get blob and create download
+      const blob = await apiClient.downloadExport(jobId)
+      
+      // Create blob URL
+      const url = window.URL.createObjectURL(blob)
+      
+      // Create and trigger download link
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+      }, 100)
+      
     } catch (err) {
       error.value = err.message
       console.error('Error downloading export:', err)

@@ -158,6 +158,12 @@ onMounted(async () => {
   try {
     const response = await taskStore.getExportHistory();
     console.log('Direct API response:', response);
+    
+    // Log the first export job to see its structure
+    if (taskStore.exportHistory && taskStore.exportHistory.length > 0) {
+      console.log('Sample export job item:', taskStore.exportHistory[0]);
+    }
+    
     loading.value = false;
   } catch (err) {
     console.error('Error in component:', err);
@@ -166,18 +172,22 @@ onMounted(async () => {
 });
 
 function downloadExport(id) {
+  console.log('Download export ID:', id);
   taskStore.downloadExport(id);
 }
 
 function pauseExport(id) {
+  console.log('Pause export ID:', id);
   taskStore.pauseExport(id);
 }
 
 function resumeExport(id) {
+  console.log('Resume export ID:', id);
   taskStore.resumeExport(id);
 }
 
 function retryExport(id) {
+  console.log('Retry export ID:', id);
   taskStore.retryExport(id);
 }
 
