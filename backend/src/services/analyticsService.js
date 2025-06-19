@@ -4,6 +4,7 @@
  */
 
 import Task from '../models/Task.js';
+import ExportJob from '../models/ExportJob.js';
 import { redisClient } from '../config/redis.js';
 
 /**
@@ -204,16 +205,39 @@ class AnalyticsService {
   }
 
   /**
-   * Retrieves most recently updated tasks for activity feed
+   * Retrieves most recently updated tasks and export jobs for activity feed
    * @static
    * @async
-   * @returns {Promise<Array>} Array of 10 most recent tasks with basic info
+   * @returns {Promise<Array>} Array of 10 most recent activities with basic info
    */
   static async getRecentActivity() {
-    return await Task.find()
+    // Get recent tasks
+    const tasks = await Task.find()
       .sort({ updatedAt: -1 })
       .limit(10)
       .select('title status priority updatedAt');
+    
+    // Get recent export jobs
+    const exports = await ExportJob.find({ status: { $in: ['completed', 'failed'] } })
+      .sort({ updatedAt: -1 })
+      .limit(10)
+      .select('filename status format updatedAt');
+    
+    // Convert export jobs to task-like format for activity feed
+    const exportActivities = exports.map(exportJob => ({
+      _id: exportJob._id,
+      title: `Export: ${exportJob.filename || 'Tasks'}`,
+      status: exportJob.status === 'completed' ? 'completed' : 'pending',
+      priority: 'medium',
+      updatedAt: exportJob.updatedAt
+    }));
+    
+    // Combine and sort by updatedAt
+    const combinedActivity = [...tasks, ...exportActivities]
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 10);
+    
+    return combinedActivity;
   }
 
   /**

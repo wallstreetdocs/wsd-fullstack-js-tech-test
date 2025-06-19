@@ -200,6 +200,9 @@ class SocketHandlers {
             `Export completed: ${updatedJob.filename}`,
             'success'
           );
+          
+          // Trigger analytics update to refresh recent activity with the new export job
+          this.broadcastAnalyticsUpdate();
         }
         
         // If job failed, send error notification
@@ -208,6 +211,9 @@ class SocketHandlers {
             jobId: updatedJob._id,
             error: updatedJob.error
           });
+          
+          // Update analytics for failed exports too
+          this.broadcastAnalyticsUpdate();
         }
       };
       
