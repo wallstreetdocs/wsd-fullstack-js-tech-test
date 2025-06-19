@@ -17,6 +17,7 @@ export const useTaskStore = defineStore('tasks', () => {
   const tasks = ref([])
   const loading = ref(false)
   const error = ref(null)
+  const exportHistory = ref([])
   const pagination = ref({
     page: 1,
     limit: 10,
@@ -401,6 +402,23 @@ export const useTaskStore = defineStore('tasks', () => {
   }
   
   /**
+   * Retries a failed export job
+   * @async
+   * @function retryExport
+   * @param {string} jobId - Export job ID to retry
+   * @returns {Promise<void>}
+   */
+  async function retryExport(jobId) {
+    if (!jobId) return
+    
+    try {
+      socket.emit('retry-export', { jobId })
+    } catch (err) {
+      console.error('Error retrying export:', err)
+    }
+  }
+  
+  /**
    * Fetches export history
    * @async
    * @function getExportHistory
@@ -409,13 +427,18 @@ export const useTaskStore = defineStore('tasks', () => {
    * @returns {Promise<Object>} Export history with pagination
    */
   async function getExportHistory(page = 1, limit = 10) {
+    loading.value = true
     try {
       const response = await apiClient.getExportHistory({ page, limit })
+      // API returns { data: { jobs: [...], pagination: {...} } }
+      exportHistory.value = response.data.jobs
       return response.data
     } catch (err) {
       error.value = err.message
       console.error('Error fetching export history:', err)
       throw err
+    } finally {
+      loading.value = false
     }
   }
   
@@ -549,8 +572,10 @@ export const useTaskStore = defineStore('tasks', () => {
     downloadExport,
     pauseExport,
     resumeExport,
+    retryExport,
     getExportHistory,
     exportProgress,
-    activeExports
+    activeExports,
+    exportHistory
   }
 })
