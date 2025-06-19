@@ -179,6 +179,14 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    
+    <!-- Export Progress Bar -->
+    <export-progress-bar
+      @download="handleDownloadExport"
+      @pause="handlePauseExport"
+      @resume="handleResumeExport"
+      @close="closeExportProgress"
+    />
   </div>
 </template>
 
@@ -186,6 +194,7 @@
 import { ref, reactive, onMounted, defineProps } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+import ExportProgressBar from './ExportProgressBar.vue'
 
 const props = defineProps({
   enableExport: {
@@ -302,37 +311,64 @@ function formatDate(date) {
 
 async function exportTasks(format) {
   try {
-    // Show loading state
-    window.alert(`Exporting tasks in ${format} format...`);
+    // Start background export job
+    await taskStore.exportTasks(format);
     
-    // Get data from API as blob using taskStore
-    const blob = await taskStore.exportTasks(format);
+    // No need to show alert, progress bar will appear automatically
+  } catch (error) {
+    console.error('Export failed to start:', error);
+    window.alert(`Export failed to start: ${error.message}`);
+  }
+}
+
+async function handleDownloadExport(jobId) {
+  try {
+    console.log('Starting download for job:', jobId);
     
-    // Create filename with date
-    const date = new Date().toISOString().split('T')[0];
-    const extension = format === 'csv' ? 'csv' : 'json';
-    const filename = `tasks_export_${date}.${extension}`;
+    // Get filename from store or generate default
+    const filename = taskStore.exportProgress.filename || 
+      `tasks_export_${new Date().toISOString().split('T')[0]}.${taskStore.exportProgress.format}`;
     
-    // Create download link
-    const url = URL.createObjectURL(blob);
+    // Get direct download URL
+    const downloadUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/exportTasks/${jobId}/download`;
+    console.log('Download URL:', downloadUrl);
+    
+    // Create and trigger download using a direct link
     const link = document.createElement('a');
-    link.href = url;
+    link.href = downloadUrl;
     link.download = filename;
+    link.target = '_blank';
     
     // Trigger download
     document.body.appendChild(link);
     link.click();
     
     // Clean up
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      document.body.removeChild(link);
+    }, 100);
     
-    // Success message
-    window.alert(`Tasks exported successfully as ${filename}`);
+    // Reset active status (but keep details visible for a while)
+    setTimeout(() => {
+      taskStore.exportProgress.active = false;
+    }, 3000);
+    
   } catch (error) {
-    console.error('Export failed:', error);
-    window.alert(`Export failed: ${error.message}`);
+    console.error('Download failed:', error);
+    window.alert(`Download failed: ${error.message}`);
   }
+}
+
+function handlePauseExport(jobId) {
+  taskStore.pauseExport(jobId);
+}
+
+function handleResumeExport(jobId) {
+  taskStore.resumeExport(jobId);
+}
+
+function closeExportProgress() {
+  taskStore.exportProgress.active = false;
 }
 
 onMounted(() => {

@@ -5,7 +5,9 @@
 
 import express from 'express';
 import Task from '../models/Task.js';
+import ExportJob from '../models/ExportJob.js';
 import AnalyticsService from '../services/analyticsService.js';
+import ExportService from '../services/exportService.js';
 import { redisClient } from '../config/redis.js';
 
 const router = express.Router();
@@ -265,78 +267,229 @@ router.get('/analytics', async (req, res, next) => {
 });
 
 /**
- * POST /exportTasks - Export tasks in JSON or CSV format
+ * POST /exportTasks - Start a background task export process
  * @name exportTasks
  * @function
  * @param {Object} req.body - Request body
  * @param {string} req.body.format - Export format ('csv' or 'json')
  * @param {Object} req.body.filters - Filter parameters
- * @returns {File} Exported tasks in requested format
+ * @returns {Object} Export job metadata
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
-
     const { format, filters } = req.body;
-
-    const {
-      status,
-      priority,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = filters;
-
-    const query = {};
-    if (status) query.status = status;
-    if (priority) query.priority = priority;
-
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    const tasks = await Task.find(query)
-      .sort(sort)
-      .exec();
-
-    const total = await Task.countDocuments(query);
-
-    // Log filters for debugging
-    console.log('Export request:', { format, filters });
     
-    if (format === 'csv') {
-      // Create CSV content
-      const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
-      const rows = tasks.map(task => [
-        task._id,
-        task.title,
-        task.description || '',
-        task.status,
-        task.priority,
-        task.createdAt,
-        task.updatedAt,
-        task.completedAt || ''
-      ]);
-      
-      const csvContent = [
-        headers.join(','), 
-        ...rows.map(row => 
-          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
-            .join(',')
-        )
-      ].join('\n');
-      
-      // Set headers for CSV download
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=tasks_export.csv');
-      
-      // Send CSV response
-      return res.send(csvContent);
-    } else {
-      // Set headers for JSON download
-      res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', 'attachment; filename=tasks_export.json');
-      
-      // Send JSON response
-      return res.send(JSON.stringify(tasks, null, 2));
+    // Validate format
+    if (!['csv', 'json'].includes(format)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid format. Must be csv or json.'
+      });
     }
+    
+    // Create an export job using the export service
+    const exportJob = await ExportService.createExportJob({
+      format,
+      filters
+    });
+    
+    // Log export job creation
+    console.log('Export job created:', { jobId: exportJob._id, format, filters });
+    
+    // Return the job ID and status
+    res.status(202).json({
+      success: true,
+      data: {
+        jobId: exportJob._id,
+        status: exportJob.status
+      },
+      message: 'Export job created successfully'
+    });
+    
+    // If socket handlers are available, notify clients about new export job
+    if (socketHandlers) {
+      socketHandlers.broadcastNotification(
+        `Export job started: ${format.toUpperCase()} export`,
+        'info'
+      );
+      
+      // Start processing the job in the background
+      const progressCallback = (updatedJob) => {
+        // Find the socket for the client that created the job
+        if (socketHandlers) {
+          // Only broadcast occasional progress updates to avoid noise
+          if (updatedJob.progress % 20 === 0 || updatedJob.status === 'completed') {
+            socketHandlers.broadcastNotification(
+              `Export progress: ${updatedJob.progress}% complete`,
+              'info'
+            );
+          }
+          
+          // Emit progress events for all updates
+          socketHandlers.io.emit('export-progress', {
+            jobId: updatedJob._id,
+            status: updatedJob.status,
+            progress: updatedJob.progress,
+            processedItems: updatedJob.processedItems,
+            totalItems: updatedJob.totalItems
+          });
+          
+          // If job completed, send completion notification
+          if (updatedJob.status === 'completed') {
+            socketHandlers.io.emit('export-completed', {
+              jobId: updatedJob._id,
+              filename: updatedJob.filename
+            });
+            
+            socketHandlers.broadcastNotification(
+              `Export completed: ${updatedJob.filename}`,
+              'success'
+            );
+          }
+          
+          // If job failed, send error notification
+          if (updatedJob.status === 'failed') {
+            socketHandlers.io.emit('export-failed', {
+              jobId: updatedJob._id,
+              error: updatedJob.error
+            });
+          }
+        }
+      };
+      
+      // Start processing in the background
+      ExportService.processExportJob(exportJob, progressCallback).catch((error) => {
+        console.error('Error in background export processing:', error);
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /exportTasks/:id - Get export job status
+ * @name getExportJob
+ * @function
+ * @param {string} req.params.id - Export job ID
+ * @returns {Object} Export job status and progress
+ */
+router.get('/exportTasks/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const exportJob = await ExportJob.findById(id);
+    
+    if (!exportJob) {
+      return res.status(404).json({
+        success: false,
+        message: 'Export job not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        id: exportJob._id,
+        status: exportJob.status,
+        progress: exportJob.progress,
+        format: exportJob.format,
+        filters: exportJob.filters,
+        createdAt: exportJob.createdAt,
+        updatedAt: exportJob.updatedAt,
+        filename: exportJob.filename,
+        error: exportJob.error
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /exportTasks/:id/download - Download exported file
+ * @name downloadExport
+ * @function
+ * @param {string} req.params.id - Export job ID
+ * @returns {File} Exported file data
+ */
+router.get('/exportTasks/:id/download', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const exportJob = await ExportJob.findById(id);
+    
+    if (!exportJob) {
+      return res.status(404).json({
+        success: false,
+        message: 'Export job not found'
+      });
+    }
+    
+    if (exportJob.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Export is not yet complete'
+      });
+    }
+    
+    if (!exportJob.result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Export result not found'
+      });
+    }
+    
+    // Set content type based on format
+    const contentType = exportJob.format === 'csv' ? 'text/csv' : 'application/json';
+    
+    // Set headers for file download
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=${exportJob.filename}`);
+    
+    console.log(`Serving download for job ${id}, format: ${exportJob.format}, size: ${exportJob.result.length} bytes`);
+    
+    // Send file data as Buffer
+    res.send(exportJob.result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /exportHistory - Get export job history
+ * @name getExportHistory
+ * @function
+ * @param {number} [req.query.page=1] - Page number
+ * @param {number} [req.query.limit=10] - Items per page
+ * @returns {Object} Paginated export history
+ */
+router.get('/exportHistory', async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    
+    const skip = (page - 1) * limit;
+    
+    // Get export jobs without result data to reduce response size
+    const jobs = await ExportJob.find({}, { result: 0 })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    
+    const total = await ExportJob.countDocuments();
+    
+    res.json({
+      success: true,
+      data: {
+        jobs,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
   } catch (error) {
     next(error);
   }

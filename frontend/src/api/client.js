@@ -195,23 +195,49 @@ class ApiClient {
   }
 
   /**
-   * Exports tasks in specified format (CSV or JSON)
+   * Starts a background task export process
    * @async
    * @param {string} format - Export format ('csv' or 'json')
    * @param {Object} [filters={}] - Filter parameters (status, priority, sortBy, sortOrder)
-   * @returns {Promise<Blob>} File data for download
+   * @returns {Promise<Object>} Export job metadata with jobId
    */
   async exportTasks(format, filters = {}) {
-    // Set Accept header based on format
-    const acceptHeader = format === 'csv' ? 'text/csv' : 'application/json';
-    
-    return this.post('/exportTasks', 
-      {
-        format,
-        filters
-      }, 
-      'blob' // Request response as blob
-    );
+    return this.post('/exportTasks', {
+      format,
+      filters
+    });
+  }
+  
+  /**
+   * Gets the status of an export job
+   * @async
+   * @param {string} jobId - Export job ID
+   * @returns {Promise<Object>} Export job status and metadata
+   */
+  async getExportStatus(jobId) {
+    return this.get(`/exportTasks/${jobId}`);
+  }
+  
+  /**
+   * Downloads a completed export file
+   * @async
+   * @param {string} jobId - Export job ID
+   * @returns {Promise<Blob>} Exported file as a blob for download
+   */
+  async downloadExport(jobId) {
+    return this.request(`/exportTasks/${jobId}/download`, {
+      method: 'GET'
+    }, 'blob');
+  }
+  
+  /**
+   * Gets export history
+   * @async
+   * @param {Object} [params={}] - Pagination parameters
+   * @returns {Promise<Object>} Export history with pagination
+   */
+  async getExportHistory(params = {}) {
+    return this.get('/exportHistory', params);
   }
 }
 

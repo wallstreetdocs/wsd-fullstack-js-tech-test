@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
 
@@ -273,15 +273,41 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
-   * Exports tasks in specified format with current filters
+   * Active export jobs
+   * @type {Object}
+   */
+  const activeExports = reactive({})
+
+  /**
+   * Current export progress
+   * @type {Object}
+   */
+  const exportProgress = reactive({
+    active: false,
+    jobId: null,
+    status: null,
+    progress: 0,
+    format: null,
+    processedItems: 0,
+    totalItems: 0,
+    error: null,
+    filename: null
+  })
+
+  /**
+   * Starts a background task export process
    * @async
    * @function exportTasks
    * @param {string} format - Export format ('csv' or 'json')
-   * @returns {Promise<Blob>} File blob for download
+   * @returns {Promise<Object>} Export job metadata
    */
   async function exportTasks(format) {
     loading.value = true
     error.value = null
+    exportProgress.active = true
+    exportProgress.format = format
+    exportProgress.progress = 0
+    exportProgress.error = null
 
     try {
       const queryParams = {
@@ -292,15 +318,209 @@ export const useTaskStore = defineStore('tasks', () => {
         if (!queryParams[key]) delete queryParams[key]
       })
       
-      // Return the result from apiClient.exportTasks
-      return await apiClient.exportTasks(format, queryParams)
+      // Start export job
+      const response = await apiClient.exportTasks(format, queryParams)
+      
+      // Store job ID for tracking
+      const jobId = response.data.jobId
+      exportProgress.jobId = jobId
+      exportProgress.status = response.data.status
+      
+      // Add to active exports
+      activeExports[jobId] = {
+        id: jobId,
+        format,
+        status: response.data.status,
+        progress: 0,
+        createdAt: new Date()
+      }
+      
+      // Set up socket listeners for this export if not already listening
+      setupExportSocketListeners()
+      
+      return response.data
     } catch (err) {
+      exportProgress.error = err.message
       error.value = err.message
-      console.error('Error exporting tasks:', err)
+      console.error('Error starting export:', err)
       throw err
     } finally {
       loading.value = false
     }
+  }
+  
+  /**
+   * Downloads a completed export
+   * @async
+   * @function downloadExport
+   * @param {string} jobId - Export job ID
+   * @returns {Promise<Blob>} File blob for download
+   */
+  async function downloadExport(jobId) {
+    try {
+      return await apiClient.downloadExport(jobId)
+    } catch (err) {
+      error.value = err.message
+      console.error('Error downloading export:', err)
+      throw err
+    }
+  }
+  
+  /**
+   * Pauses an active export job
+   * @async
+   * @function pauseExport
+   * @param {string} jobId - Export job ID to pause
+   * @returns {Promise<void>}
+   */
+  async function pauseExport(jobId = exportProgress.jobId) {
+    if (!jobId) return
+    
+    try {
+      socket.emit('pause-export', { jobId })
+    } catch (err) {
+      console.error('Error pausing export:', err)
+    }
+  }
+  
+  /**
+   * Resumes a paused export job
+   * @async
+   * @function resumeExport
+   * @param {string} jobId - Export job ID to resume
+   * @returns {Promise<void>}
+   */
+  async function resumeExport(jobId = exportProgress.jobId) {
+    if (!jobId) return
+    
+    try {
+      socket.emit('resume-export', { jobId })
+    } catch (err) {
+      console.error('Error resuming export:', err)
+    }
+  }
+  
+  /**
+   * Fetches export history
+   * @async
+   * @function getExportHistory
+   * @param {number} [page=1] - Page number
+   * @param {number} [limit=10] - Items per page
+   * @returns {Promise<Object>} Export history with pagination
+   */
+  async function getExportHistory(page = 1, limit = 10) {
+    try {
+      const response = await apiClient.getExportHistory({ page, limit })
+      return response.data
+    } catch (err) {
+      error.value = err.message
+      console.error('Error fetching export history:', err)
+      throw err
+    }
+  }
+  
+  /**
+   * Sets up socket event listeners for export progress tracking
+   * @function setupExportSocketListeners
+   */
+  function setupExportSocketListeners() {
+    // Export progress updates
+    socket.on('export-progress', (data) => {
+      const { jobId, status, progress, processedItems, totalItems } = data
+      
+      // Update export progress if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = status
+        exportProgress.progress = progress
+        exportProgress.processedItems = processedItems
+        exportProgress.totalItems = totalItems
+      }
+      
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = status
+        activeExports[jobId].progress = progress
+      }
+    })
+    
+    // Export completed
+    socket.on('export-completed', (data) => {
+      const { jobId, filename } = data
+      
+      console.log('Export completed event received:', data)
+      
+      // Update if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'completed'
+        exportProgress.progress = 100
+        exportProgress.filename = filename
+        
+        // Make sure the progress bar stays visible
+        exportProgress.active = true
+      }
+      
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = 'completed'
+        activeExports[jobId].progress = 100
+        activeExports[jobId].filename = filename
+        activeExports[jobId].downloadReady = true
+      }
+    })
+    
+    // Export failed
+    socket.on('export-failed', (data) => {
+      const { jobId, error } = data
+      
+      // Update if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'failed'
+        exportProgress.error = error
+      }
+      
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = 'failed'
+        activeExports[jobId].error = error
+      }
+    })
+    
+    // Export download ready
+    socket.on('export-download-ready', (data) => {
+      const { jobId, data: fileData, filename, format } = data
+      
+      // Update active exports
+      if (activeExports[jobId]) {
+        activeExports[jobId].downloadReady = true
+        activeExports[jobId].filename = filename
+      }
+    })
+    
+    // Check for active exports on reconnection
+    socket.on('connect', () => {
+      socket.emit('reconnect-exports')
+    })
+    
+    // Handle active exports on reconnection
+    socket.on('active-exports', (data) => {
+      const { jobs } = data
+      
+      // Update active exports
+      jobs.forEach(job => {
+        activeExports[job._id] = {
+          id: job._id,
+          format: job.format,
+          status: job.status,
+          progress: job.progress,
+          createdAt: new Date(job.createdAt)
+        }
+        
+        // If job was paused, update UI
+        if (job.status === 'paused' && job._id === exportProgress.jobId) {
+          exportProgress.status = 'paused'
+        }
+      })
+    })
   }
 
   return {
@@ -325,6 +545,12 @@ export const useTaskStore = defineStore('tasks', () => {
     handleTaskUpdate,
     initializeSocketListeners,
     cleanup,
-    exportTasks
+    exportTasks,
+    downloadExport,
+    pauseExport,
+    resumeExport,
+    getExportHistory,
+    exportProgress,
+    activeExports
   }
 })
