@@ -39,6 +39,13 @@ export const setSocketHandlers = (handlers) => {
  * @param {string} [req.query.priority] - Filter by task priority
  * @param {string} [req.query.sortBy=createdAt] - Field to sort by
  * @param {string} [req.query.sortOrder=desc] - Sort order (asc/desc)
+ * @param {string} [req.query.search] - Search in title and description
+ * @param {string} [req.query.createdAfter] - Filter tasks created after date (ISO format)
+ * @param {string} [req.query.createdBefore] - Filter tasks created before date (ISO format)
+ * @param {string} [req.query.completedAfter] - Filter tasks completed after date (ISO format)
+ * @param {string} [req.query.completedBefore] - Filter tasks completed before date (ISO format)
+ * @param {number} [req.query.estimatedTimeLt] - Filter tasks with estimated time less than value (minutes)
+ * @param {number} [req.query.estimatedTimeGte] - Filter tasks with estimated time greater than or equal to value (minutes)
  * @returns {Object} Paginated tasks with metadata
  */
 router.get('/tasks', async (req, res, next) => {
@@ -49,12 +56,51 @@ router.get('/tasks', async (req, res, next) => {
       status,
       priority,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      // Advanced filters
+      search,
+      createdAfter,
+      createdBefore,
+      completedAfter,
+      completedBefore,
+      estimatedTimeLt,
+      estimatedTimeGte
     } = req.query;
 
     const query = {};
+    
+    // Basic filters
     if (status) query.status = status;
     if (priority) query.priority = priority;
+    
+    // Text search in title or description
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Date range filters
+    if (createdAfter || createdBefore) {
+      query.createdAt = {};
+      if (createdAfter) query.createdAt.$gte = new Date(createdAfter);
+      if (createdBefore) query.createdAt.$lte = new Date(createdBefore);
+    }
+    
+    // Completed date range filters
+    if (completedAfter || completedBefore) {
+      query.completedAt = {};
+      if (completedAfter) query.completedAt.$gte = new Date(completedAfter);
+      if (completedBefore) query.completedAt.$lte = new Date(completedBefore);
+    }
+    
+    // Estimated time filters
+    if (estimatedTimeLt || estimatedTimeGte) {
+      query.estimatedTime = {};
+      if (estimatedTimeLt) query.estimatedTime.$lt = parseInt(estimatedTimeLt);
+      if (estimatedTimeGte) query.estimatedTime.$gte = parseInt(estimatedTimeGte);
+    }
 
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -285,6 +331,17 @@ router.get('/analytics', async (req, res, next) => {
  * @param {Object} req.body - Request body
  * @param {string} req.body.format - Export format ('csv' or 'json')
  * @param {Object} req.body.filters - Filter parameters
+ * @param {string} [req.body.filters.status] - Filter by task status
+ * @param {string} [req.body.filters.priority] - Filter by task priority
+ * @param {string} [req.body.filters.sortBy] - Field to sort by
+ * @param {string} [req.body.filters.sortOrder] - Sort order (asc/desc)
+ * @param {string} [req.body.filters.search] - Search in title and description
+ * @param {string} [req.body.filters.createdAfter] - Filter tasks created after date
+ * @param {string} [req.body.filters.createdBefore] - Filter tasks created before date
+ * @param {string} [req.body.filters.completedAfter] - Filter tasks completed after date
+ * @param {string} [req.body.filters.completedBefore] - Filter tasks completed before date
+ * @param {number} [req.body.filters.estimatedTimeLt] - Filter tasks with estimated time less than value
+ * @param {number} [req.body.filters.estimatedTimeGte] - Filter tasks with estimated time greater than or equal to value
  * @returns {Object} Export job metadata
  */
 router.post('/exportTasks', async (req, res, next) => {

@@ -13,6 +13,7 @@ const exportJobSchema = new mongoose.Schema(
       required: true
     },
     filters: {
+      // Basic filters (original)
       status: {
         type: String,
         enum: ['pending', 'in-progress', 'completed'],
@@ -32,6 +33,36 @@ const exportJobSchema = new mongoose.Schema(
         type: String,
         enum: ['asc', 'desc'],
         default: 'desc',
+        required: false
+      },
+      
+      // Advanced filters
+      search: {
+        type: String,
+        required: false
+      },
+      createdAfter: {
+        type: Date,
+        required: false
+      },
+      createdBefore: {
+        type: Date,
+        required: false
+      },
+      completedAfter: {
+        type: Date,
+        required: false
+      },
+      completedBefore: {
+        type: Date,
+        required: false
+      },
+      estimatedTimeLt: {
+        type: Number,
+        required: false
+      },
+      estimatedTimeGte: {
+        type: Number,
         required: false
       }
     },

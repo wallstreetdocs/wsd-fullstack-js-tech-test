@@ -26,10 +26,20 @@ export const useTaskStore = defineStore('tasks', () => {
   })
 
   const filters = ref({
+    // Basic filters
     status: '',
     priority: '',
     sortBy: 'createdAt',
-    sortOrder: 'desc'
+    sortOrder: 'desc',
+    
+    // Advanced filters
+    search: '',
+    createdAfter: '',
+    createdBefore: '',
+    completedAfter: '',
+    completedBefore: '',
+    estimatedTimeLt: null,
+    estimatedTimeGte: null
   })
 
   const pendingTasks = computed(() =>

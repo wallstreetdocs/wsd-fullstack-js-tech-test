@@ -55,11 +55,24 @@
             <div>
               <strong>Filters:</strong>
               <ul class="ps-4 mb-0">
+                <!-- Basic filters -->
                 <li v-if="item.filters?.status">Status: {{ item.filters.status }}</li>
                 <li v-if="item.filters?.priority">Priority: {{ item.filters.priority }}</li>
-                <li v-if="item.filters?.search">Search: {{ item.filters.search }}</li>
                 <li v-if="item.filters?.sortBy">Sort by: {{ item.filters.sortBy }}</li>
                 <li v-if="item.filters?.sortOrder">Order: {{ item.filters.sortOrder }}</li>
+                
+                <!-- Advanced filters -->
+                <li v-if="item.filters?.search">Search: "{{ item.filters.search }}"</li>
+                
+                <!-- Date filters -->
+                <li v-if="item.filters?.createdAfter">Created after: {{ formatDate(item.filters.createdAfter) }}</li>
+                <li v-if="item.filters?.createdBefore">Created before: {{ formatDate(item.filters.createdBefore) }}</li>
+                <li v-if="item.filters?.completedAfter">Completed after: {{ formatDate(item.filters.completedAfter) }}</li>
+                <li v-if="item.filters?.completedBefore">Completed before: {{ formatDate(item.filters.completedBefore) }}</li>
+                
+                <!-- Time estimate filters -->
+                <li v-if="item.filters?.estimatedTimeLt">Estimated time less than: {{ item.filters.estimatedTimeLt }} minutes</li>
+                <li v-if="item.filters?.estimatedTimeGte">Estimated time at least: {{ item.filters.estimatedTimeGte }} minutes</li>
               </ul>
             </div>
           </v-tooltip>

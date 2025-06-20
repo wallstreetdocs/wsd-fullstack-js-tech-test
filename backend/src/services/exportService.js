@@ -49,10 +49,20 @@ class ExportService {
     const paramsString = JSON.stringify({
       format,
       filters: {
+        // Basic filters
         status: filters.status || null,
         priority: filters.priority || null,
         sortBy: filters.sortBy || 'createdAt',
-        sortOrder: filters.sortOrder || 'desc'
+        sortOrder: filters.sortOrder || 'desc',
+        
+        // Advanced filters
+        search: filters.search || null,
+        createdAfter: filters.createdAfter || null,
+        createdBefore: filters.createdBefore || null,
+        completedAfter: filters.completedAfter || null,
+        completedBefore: filters.completedBefore || null,
+        estimatedTimeLt: filters.estimatedTimeLt || null,
+        estimatedTimeGte: filters.estimatedTimeGte || null
       }
     });
     // Create a hash of the parameters string for a shorter key
@@ -114,8 +124,39 @@ class ExportService {
       
       // Construct query from filters
       const query = {};
+      
+      // Basic filters
       if (job.filters.status) query.status = job.filters.status;
       if (job.filters.priority) query.priority = job.filters.priority;
+      
+      // Text search in title or description
+      if (job.filters.search) {
+        query.$or = [
+          { title: { $regex: job.filters.search, $options: 'i' } },
+          { description: { $regex: job.filters.search, $options: 'i' } }
+        ];
+      }
+      
+      // Date range filters
+      if (job.filters.createdAfter || job.filters.createdBefore) {
+        query.createdAt = {};
+        if (job.filters.createdAfter) query.createdAt.$gte = new Date(job.filters.createdAfter);
+        if (job.filters.createdBefore) query.createdAt.$lte = new Date(job.filters.createdBefore);
+      }
+      
+      // Completed date range filters
+      if (job.filters.completedAfter || job.filters.completedBefore) {
+        query.completedAt = {};
+        if (job.filters.completedAfter) query.completedAt.$gte = new Date(job.filters.completedAfter);
+        if (job.filters.completedBefore) query.completedAt.$lte = new Date(job.filters.completedBefore);
+      }
+      
+      // Estimated time filters
+      if (job.filters.estimatedTimeLt || job.filters.estimatedTimeGte) {
+        query.estimatedTime = {};
+        if (job.filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(job.filters.estimatedTimeLt);
+        if (job.filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(job.filters.estimatedTimeGte);
+      }
       
       // Set up sorting
       const sort = {};
