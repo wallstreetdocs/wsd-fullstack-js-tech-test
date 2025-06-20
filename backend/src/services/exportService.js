@@ -6,6 +6,7 @@
 import Task from '../models/Task.js';
 import ExportJob from '../models/ExportJob.js';
 import { redisClient } from '../config/redis.js';
+import fileGeneratorService from './fileGeneratorService.js';
 import crypto from 'crypto';
 
 class ExportService {
@@ -32,12 +33,6 @@ class ExportService {
     return exportJob;
   }
 
-  /**
-   * Process an export job in the background
-   * @param {Object} job - Export job object
-   * @param {Function} progressCallback - Callback for progress updates
-   * @returns {Promise<Object>} Completed export job
-   */
   /**
    * Generate a cache key for an export job based on its parameters
    * @param {Object} jobParams - Export job parameters
@@ -79,6 +74,12 @@ class ExportService {
     return totalItems > 1000 ? 86400 : 3600;
   }
 
+  /**
+   * Process an export job in the background
+   * @param {Object} job - Export job object
+   * @param {Function} progressCallback - Callback for progress updates
+   * @returns {Promise<Object>} Completed export job
+   */
   async processExportJob(job, progressCallback) {
     try {
       console.log(`Starting export job processing: ${job._id}, format: ${job.format}`);
@@ -122,41 +123,8 @@ class ExportService {
         return job;
       }
       
-      // Construct query from filters
-      const query = {};
-      
-      // Basic filters
-      if (job.filters.status) query.status = job.filters.status;
-      if (job.filters.priority) query.priority = job.filters.priority;
-      
-      // Text search in title or description
-      if (job.filters.search) {
-        query.$or = [
-          { title: { $regex: job.filters.search, $options: 'i' } },
-          { description: { $regex: job.filters.search, $options: 'i' } }
-        ];
-      }
-      
-      // Date range filters
-      if (job.filters.createdAfter || job.filters.createdBefore) {
-        query.createdAt = {};
-        if (job.filters.createdAfter) query.createdAt.$gte = new Date(job.filters.createdAfter);
-        if (job.filters.createdBefore) query.createdAt.$lte = new Date(job.filters.createdBefore);
-      }
-      
-      // Completed date range filters
-      if (job.filters.completedAfter || job.filters.completedBefore) {
-        query.completedAt = {};
-        if (job.filters.completedAfter) query.completedAt.$gte = new Date(job.filters.completedAfter);
-        if (job.filters.completedBefore) query.completedAt.$lte = new Date(job.filters.completedBefore);
-      }
-      
-      // Estimated time filters
-      if (job.filters.estimatedTimeLt || job.filters.estimatedTimeGte) {
-        query.estimatedTime = {};
-        if (job.filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(job.filters.estimatedTimeLt);
-        if (job.filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(job.filters.estimatedTimeGte);
-      }
+      // Prepare database query from filters
+      const query = this.buildQueryFromFilters(job.filters);
       
       // Set up sorting
       const sort = {};
@@ -172,115 +140,24 @@ class ExportService {
       // Get all tasks matching the query
       const tasks = await Task.find(query).sort(sort).exec();
       
-      // Generate export content based on format
-      let result;
-      let filename;
-      
       // Process in chunks to update progress
       const chunkSize = Math.max(Math.floor(tasks.length / 10), 1); // Update progress ~10 times
       
-      if (job.format === 'csv') {
-        // Create CSV content
-        const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
-        const rows = [];
-        
-        console.log(`Processing CSV export in chunks of ${chunkSize} tasks`);
-        
-        // Process tasks in chunks
-        for (let i = 0; i < tasks.length; i += chunkSize) {
-          const chunk = tasks.slice(i, i + chunkSize);
-          
-          // Process each task in the chunk
-          for (const task of chunk) {
-            rows.push([
-              task._id,
-              task.title,
-              task.description || '',
-              task.status,
-              task.priority,
-              task.createdAt,
-              task.updatedAt,
-              task.completedAt || ''
-            ]);
-          }
-          
-          // Update progress - force a new percentage calculation
-          const currentProgress = Math.min(i + chunkSize, tasks.length);
-          job.processedItems = currentProgress;
-          job.totalItems = totalCount;
-          job.progress = Math.floor((currentProgress / totalCount) * 100);
-          job.status = 'processing'; // Ensure status stays as processing
-          await job.save();
-          
-          console.log(`Export job ${job._id} progress: ${job.progress}% (${currentProgress}/${totalCount})`);
-          
-          // Send progress update
-          if (progressCallback) {
-            // Get a fresh copy to ensure we have the latest state
-            const updatedJob = await ExportJob.findById(job._id);
-            progressCallback(updatedJob);
-          }
-          
-          // Check if job has been paused or cancelled
-          const refreshedJob = await ExportJob.findById(job._id);
-          if (refreshedJob.status === 'paused') {
-            console.log(`Export job ${job._id} was paused, exiting early`);
-            return refreshedJob; // Exit early if paused
-          }
-        }
-        
-        // Finalize CSV content
-        const csvContent = [
-          headers.join(','), 
-          ...rows.map(row => 
-            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
-              .join(',')
-          )
-        ].join('\n');
-        
-        result = Buffer.from(csvContent, 'utf-8');
-        filename = `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
-      } else {
-        // JSON format
-        const jsonOutput = [];
-        
-        console.log(`Processing JSON export in chunks of ${chunkSize} tasks`);
-        
-        // Process tasks in chunks
-        for (let i = 0; i < tasks.length; i += chunkSize) {
-          const chunk = tasks.slice(i, i + chunkSize);
-          
-          // Add tasks to output
-          jsonOutput.push(...chunk);
-          
-          // Update progress - force a new percentage calculation
-          const currentProgress = Math.min(i + chunkSize, tasks.length);
-          job.processedItems = currentProgress;
-          job.totalItems = totalCount;
-          job.progress = Math.floor((currentProgress / totalCount) * 100);
-          job.status = 'processing'; // Ensure status stays as processing
-          await job.save();
-          
-          console.log(`Export job ${job._id} progress: ${job.progress}% (${currentProgress}/${totalCount})`);
-          
-          // Send progress update
-          if (progressCallback) {
-            // Get a fresh copy to ensure we have the latest state
-            const updatedJob = await ExportJob.findById(job._id);
-            progressCallback(updatedJob);
-          }
-          
-          // Check if job has been paused or cancelled
-          const refreshedJob = await ExportJob.findById(job._id);
-          if (refreshedJob.status === 'paused') {
-            console.log(`Export job ${job._id} was paused, exiting early`);
-            return refreshedJob; // Exit early if paused
-          }
-        }
-        
-        result = Buffer.from(JSON.stringify(jsonOutput, null, 2), 'utf-8');
-        filename = `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
+      // Process tasks in chunks with progress tracking
+      const processedTasks = await this.processTasksInChunks(
+        tasks, 
+        chunkSize, 
+        job, 
+        progressCallback
+      );
+      
+      // If processing was interrupted (e.g., paused), return the job as is
+      if (job.status === 'paused') {
+        return job;
       }
+      
+      // Generate the file using the dedicated file generator service
+      const { result, filename } = fileGeneratorService.generateFile(processedTasks, job.format);
       
       // Complete the job
       job.status = 'completed';
@@ -290,22 +167,7 @@ class ExportService {
       await job.save();
       
       // Cache the result for future identical exports
-      // Reuse the same cache key that was checked earlier
-      const cacheTTL = this.getCacheTTL(totalCount);
-      console.log(`💾 Caching export result with key: ${cacheKey}, TTL: ${cacheTTL}s`);
-      const cacheData = {
-        totalItems: totalCount,
-        result: result.toString('base64'), // Store buffer as base64 string
-        filename: filename
-      };
-      
-      try {
-        await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
-        console.log(`Cached export result for key ${cacheKey} with TTL ${cacheTTL}s`);
-      } catch (cacheError) {
-        // Log but don't fail if caching fails
-        console.error('Error caching export result:', cacheError);
-      }
+      await this.cacheExportResult(cacheKey, totalCount, result, filename);
       
       console.log(`Export job ${job._id} completed successfully, file: ${filename}`);
       
@@ -326,6 +188,122 @@ class ExportService {
       }
       
       throw error;
+    }
+  }
+
+  /**
+   * Build database query from job filters
+   * @private
+   * @param {Object} filters - Filter parameters
+   * @returns {Object} MongoDB query object
+   */
+  buildQueryFromFilters(filters) {
+    const query = {};
+    
+    // Basic filters
+    if (filters.status) query.status = filters.status;
+    if (filters.priority) query.priority = filters.priority;
+    
+    // Text search in title or description
+    if (filters.search) {
+      query.$or = [
+        { title: { $regex: filters.search, $options: 'i' } },
+        { description: { $regex: filters.search, $options: 'i' } }
+      ];
+    }
+    
+    // Date range filters
+    if (filters.createdAfter || filters.createdBefore) {
+      query.createdAt = {};
+      if (filters.createdAfter) query.createdAt.$gte = new Date(filters.createdAfter);
+      if (filters.createdBefore) query.createdAt.$lte = new Date(filters.createdBefore);
+    }
+    
+    // Completed date range filters
+    if (filters.completedAfter || filters.completedBefore) {
+      query.completedAt = {};
+      if (filters.completedAfter) query.completedAt.$gte = new Date(filters.completedAfter);
+      if (filters.completedBefore) query.completedAt.$lte = new Date(filters.completedBefore);
+    }
+    
+    // Estimated time filters
+    if (filters.estimatedTimeLt || filters.estimatedTimeGte) {
+      query.estimatedTime = {};
+      if (filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(filters.estimatedTimeLt);
+      if (filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(filters.estimatedTimeGte);
+    }
+    
+    return query;
+  }
+
+  /**
+   * Process tasks in chunks with progress tracking
+   * @private
+   * @param {Array} tasks - Tasks to process
+   * @param {number} chunkSize - Size of each chunk
+   * @param {Object} job - Export job
+   * @param {Function} progressCallback - Callback for progress updates
+   * @returns {Promise<Array>} Processed tasks
+   */
+  async processTasksInChunks(tasks, chunkSize, job, progressCallback) {
+    const totalCount = tasks.length;
+    
+    // Process tasks in chunks to update progress
+    for (let i = 0; i < tasks.length; i += chunkSize) {
+      // Update progress calculation
+      const currentProgress = Math.min(i + chunkSize, tasks.length);
+      job.processedItems = currentProgress;
+      job.totalItems = totalCount;
+      job.progress = Math.floor((currentProgress / totalCount) * 100);
+      job.status = 'processing'; // Ensure status stays as processing
+      await job.save();
+      
+      console.log(`Export job ${job._id} progress: ${job.progress}% (${currentProgress}/${totalCount})`);
+      
+      // Send progress update
+      if (progressCallback) {
+        // Get a fresh copy to ensure we have the latest state
+        const updatedJob = await ExportJob.findById(job._id);
+        progressCallback(updatedJob);
+      }
+      
+      // Check if job has been paused or cancelled
+      const refreshedJob = await ExportJob.findById(job._id);
+      if (refreshedJob.status === 'paused') {
+        console.log(`Export job ${job._id} was paused, exiting early`);
+        job.status = 'paused';
+        return tasks.slice(0, i); // Return processed tasks so far
+      }
+    }
+    
+    return tasks;
+  }
+
+  /**
+   * Cache export result for future use
+   * @private
+   * @param {string} cacheKey - Cache key
+   * @param {number} totalCount - Total items count
+   * @param {Buffer} result - Export result buffer
+   * @param {string} filename - Export filename
+   * @returns {Promise<void>}
+   */
+  async cacheExportResult(cacheKey, totalCount, result, filename) {
+    try {
+      const cacheTTL = this.getCacheTTL(totalCount);
+      console.log(`💾 Caching export result with key: ${cacheKey}, TTL: ${cacheTTL}s`);
+      
+      const cacheData = {
+        totalItems: totalCount,
+        result: result.toString('base64'), // Store buffer as base64 string
+        filename: filename
+      };
+      
+      await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
+      console.log(`Cached export result for key ${cacheKey} with TTL ${cacheTTL}s`);
+    } catch (cacheError) {
+      // Log but don't fail if caching fails
+      console.error('Error caching export result:', cacheError);
     }
   }
 
