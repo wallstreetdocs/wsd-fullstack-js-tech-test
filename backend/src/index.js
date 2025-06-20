@@ -15,6 +15,8 @@ import apiRoutes, { setSocketHandlers } from './routes/api.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import SocketHandlers from './sockets/socketHandlers.js';
 import AnalyticsService from './services/analyticsService.js';
+import workerPool from './services/workerPool.js';
+import jobQueue from './services/jobQueue.js';
 
 dotenv.config();
 
@@ -27,6 +29,18 @@ const io = new Server(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
+
+// Add debug listener for all Socket.IO events
+if (process.env.NODE_ENV !== 'production') {
+  io.engine.on('connection', (socket) => {
+    console.log(`💡 Debug: Socket connection established: ${socket.id}`);
+    
+    // Listen for all packets
+    socket.onAny((event, ...args) => {
+      console.log(`💡 Debug: Socket ${socket.id} event: ${event}`, args);
+    });
+  });
+}
 
 const PORT = process.env.PORT || 3001;
 
@@ -65,22 +79,48 @@ setSocketHandlers(socketHandlers);
  * Handles graceful server shutdown on SIGTERM/SIGINT signals
  * @param {string} signal - Signal name (SIGTERM/SIGINT)
  */
-const gracefulShutdown = (signal) => {
+const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
 
-  server.close(() => {
-    console.log('✅ HTTP server closed');
-    process.exit(0);
-  });
+  try {
+    // Shutdown worker pool
+    console.log('Shutting down worker pool...');
+    await workerPool.shutdown();
+    
+    // Pause job queue
+    console.log('Pausing job queue...');
+    await jobQueue.pause();
+    
+    // Close server
+    server.close(() => {
+      console.log('✅ HTTP server closed');
+      process.exit(0);
+    });
 
-  setTimeout(() => {
-    console.log('⚠️  Forcing shutdown after timeout');
+    setTimeout(() => {
+      console.log('⚠️  Forcing shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
     process.exit(1);
-  }, 10000);
+  }
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
+  // Log but don't exit for unhandled rejections
+});
 
 /**
  * Initializes database connections and starts the Express server
@@ -92,6 +132,14 @@ const startServer = async () => {
   try {
     await connectMongoDB();
     await connectRedis();
+
+    // Initialize worker pool
+    console.log('🧵 Initializing worker thread pool...');
+    workerPool.initialize();
+    
+    // Initialize job queue
+    console.log('🔄 Initializing job queue...');
+    await jobQueue.initialize();
 
     // Fix any existing data issues
     console.log('🔧 Running data consistency checks...');
@@ -111,6 +159,18 @@ const startServer = async () => {
         console.error('Error in metrics broadcast interval:', error);
       }
     }, 15000);
+
+    // Clean up completed/failed jobs periodically (every hour)
+    setInterval(async () => {
+      try {
+        const cleanedCount = await jobQueue.cleanup();
+        if (cleanedCount > 0) {
+          console.log(`Cleaned up ${cleanedCount} old export jobs`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up jobs:', error);
+      }
+    }, 3600000);
 
   } catch (error) {
     console.error('❌ Failed to start server:', error);
