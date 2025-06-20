@@ -8,7 +8,7 @@
 -->
 
 <template>
-  <div>
+  <div class="dashboard">
     <h1 class="page-title">Dashboard</h1>
 
     <v-row>
@@ -67,10 +67,32 @@
         </v-card>
       </v-col>
     </v-row>
-
+    
     <v-row class="mt-4">
       <v-col cols="12" md="8">
-        <quick-task-list />
+        <v-row>
+          <v-col cols="12">
+            <quick-task-list />
+          </v-col>
+          <v-col cols="12" class="mt-4">
+            <v-card class="chart-container equal-height-chart">
+              <v-card-title>Exports Over Time (Monthly)</v-card-title>
+              <v-card-text>
+                <time-series-chart
+                  :data="analyticsStore.exportsTimeSeriesData.datasets[0].data"
+                  :labels="analyticsStore.exportsTimeSeriesData.labels"
+                  title=""
+                  :width="700"
+                  :height="220"
+                  line-color="#9C27B0"
+                  point-color="#9C27B0"
+                  area-color="#9C27B0"
+                  :fill-area="true"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
       </v-col>
       <v-col cols="12" md="4">
         <recent-activity />
@@ -86,6 +108,7 @@ import { useTaskStore } from '../stores/taskStore.js'
 import MetricCard from '../components/MetricCard.vue'
 import TaskStatusChart from '../components/TaskStatusChart.vue'
 import TaskPriorityChart from '../components/TaskPriorityChart.vue'
+import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import QuickTaskList from '../components/QuickTaskList.vue'
 import RecentActivity from '../components/RecentActivity.vue'
 
@@ -108,5 +131,17 @@ onMounted(() => {
   flex: 1;
   display: flex;
   align-items: center;
+}
+
+.dashboard .chart-container {
+  width: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 960px) {
+  .dashboard .chart-container time-series-chart {
+    transform: scale(0.8);
+    transform-origin: center;
+  }
 }
 </style>

@@ -57,7 +57,8 @@ class AnalyticsService {
       averageCompletionTime,
       tasksCreatedToday,
       tasksCompletedToday,
-      recentActivity
+      recentActivity,
+      exportsOverTime
     ] = await Promise.all([
       Task.countDocuments(),
       this.getTasksByStatus(),
@@ -66,7 +67,8 @@ class AnalyticsService {
       this.getAverageCompletionTime(),
       this.getTasksCreatedToday(),
       this.getTasksCompletedToday(),
-      this.getRecentActivity()
+      this.getRecentActivity(),
+      this.getExportsOverTime()
     ]);
 
     return {
@@ -78,6 +80,7 @@ class AnalyticsService {
       tasksCreatedToday,
       tasksCompletedToday,
       recentActivity,
+      exportsOverTime,
       lastUpdated: new Date().toISOString()
     };
   }
@@ -313,6 +316,109 @@ class AnalyticsService {
     } catch (error) {
       console.error('Error fixing completed tasks data:', error);
     }
+  }
+
+  /**
+   * Retrieves export job counts grouped by month for the past 6 months
+   * @static
+   * @async
+   * @returns {Promise<Array>} Array of monthly export counts with labels and data
+   */
+  static async getExportsOverTime() {
+    try {
+      // Calculate date 6 months ago from today
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      sixMonthsAgo.setDate(1); // Start from the 1st of the month
+      sixMonthsAgo.setHours(0, 0, 0, 0);
+
+      // Aggregate exports by month
+      const result = await ExportJob.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: sixMonthsAgo },
+            status: 'completed' // Only count completed exports
+          }
+        },
+        {
+          $group: {
+            _id: {
+              year: { $year: '$createdAt' },
+              month: { $month: '$createdAt' }
+            },
+            count: { $sum: 1 },
+            firstDay: { $min: '$createdAt' }
+          }
+        },
+        {
+          $sort: { '_id.year': 1, '_id.month': 1 }
+        }
+      ]);
+
+      // Fill in any missing months with zero counts
+      const monthlyData = [];
+      const today = new Date();
+      let currentDate = new Date(sixMonthsAgo);
+
+      // Iterate through each month in the 6-month period
+      while (currentDate <= today) {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1; // MongoDB months are 1-12
+        
+        // Look for a match in our aggregation results
+        const match = result.find(
+          item => item._id.year === year && item._id.month === month
+        );
+        
+        // Get the month label
+        const monthLabel = this.formatWeekLabel(currentDate);
+        
+        monthlyData.push({
+          label: monthLabel,
+          year,
+          month,
+          count: match ? match.count : 0
+        });
+        
+        // Move to next month
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+
+      return {
+        labels: monthlyData.map(item => item.label),
+        data: monthlyData.map(item => item.count)
+      };
+    } catch (error) {
+      console.error('Error getting exports over time:', error);
+      return { labels: [], data: [] };
+    }
+  }
+
+  /**
+   * Helper method to get ISO week number from date
+   * @static
+   * @param {Date} date - Date to get week number from
+   * @returns {number} Week number (1-53)
+   */
+  static getWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+
+  /**
+   * Helper method to format week label
+   * @static
+   * @param {Date} date - Start date of the week
+   * @returns {string} Formatted week label with just month name
+   */
+  static formatWeekLabel(date) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Just return the month name
+    return monthNames[date.getMonth()];
   }
 }
 
