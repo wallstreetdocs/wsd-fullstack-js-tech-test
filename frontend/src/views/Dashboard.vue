@@ -67,7 +67,7 @@
         </v-card>
       </v-col>
     </v-row>
-    
+
     <v-row class="mt-4">
       <v-col cols="12" md="8">
         <v-row>

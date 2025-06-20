@@ -52,7 +52,7 @@
             @click="$emit('close')"
           ></v-btn>
         </div>
-        
+
         <div class="d-flex align-center">
           <div class="flex-grow-1 mr-2">
             <v-progress-linear
@@ -62,21 +62,20 @@
               striped
             ></v-progress-linear>
           </div>
-          <div class="text-caption">
-            {{ exportProgress.progress }}%
-          </div>
+          <div class="text-caption">{{ exportProgress.progress }}%</div>
         </div>
-        
+
         <div class="d-flex justify-space-between mt-1">
           <div class="text-caption">
             <template v-if="exportProgress.totalItems > 0">
-              {{ exportProgress.processedItems }} / {{ exportProgress.totalItems }} items
+              {{ exportProgress.processedItems }} /
+              {{ exportProgress.totalItems }} items
             </template>
             <template v-else>
               {{ exportProgress.format?.toUpperCase() }} Export
             </template>
           </div>
-          <div class="text-caption" v-if="exportProgress.error">
+          <div v-if="exportProgress.error" class="text-caption">
             Error: {{ exportProgress.error }}
           </div>
         </div>
@@ -87,7 +86,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useTaskStore } from '../stores/taskStore.js'
+import { useExportStore } from '../stores/exportStore.js'
 
 const props = defineProps({
   visible: {
@@ -98,8 +97,8 @@ const props = defineProps({
 
 defineEmits(['download', 'pause', 'resume', 'close'])
 
-const taskStore = useTaskStore()
-const exportProgress = computed(() => taskStore.exportProgress)
+const exportStore = useExportStore()
+const exportProgress = computed(() => exportStore.exportProgress)
 
 const isVisible = computed(() => {
   return props.visible || exportProgress.value.active

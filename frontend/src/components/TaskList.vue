@@ -21,7 +21,7 @@
       <template v-if="enableExport">
         <div class="ml-2"></div>
         <v-menu>
-          <template v-slot:activator="{ props }">
+          <template #activator="{ props }">
             <v-btn color="primary" v-bind="props">
               <v-icon left>mdi-download</v-icon>
               Export Tasks
@@ -78,22 +78,31 @@
             ></v-select>
           </v-col>
         </v-row>
-        
+
         <!-- Advanced filters toggle -->
         <v-row>
           <v-col cols="12">
             <v-btn
               variant="text"
               color="primary"
-              @click="showAdvancedFilters = !showAdvancedFilters"
               class="px-0"
+              @click="showAdvancedFilters = !showAdvancedFilters"
             >
-              <v-icon :icon="showAdvancedFilters ? 'mdi-chevron-up' : 'mdi-chevron-down'" class="mr-1"></v-icon>
-              {{ showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters' }}
+              <v-icon
+                :icon="
+                  showAdvancedFilters ? 'mdi-chevron-up' : 'mdi-chevron-down'
+                "
+                class="mr-1"
+              ></v-icon>
+              {{
+                showAdvancedFilters
+                  ? 'Hide Advanced Filters'
+                  : 'Show Advanced Filters'
+              }}
             </v-btn>
           </v-col>
         </v-row>
-        
+
         <!-- Advanced filters -->
         <v-expand-transition>
           <div v-if="showAdvancedFilters">
@@ -108,7 +117,7 @@
                   @update:model-value="applyAdvancedFilters"
                 ></v-text-field>
               </v-col>
-              
+
               <v-col cols="12" md="6">
                 <v-select
                   v-model="filters.estimatedTimeRange"
@@ -120,7 +129,7 @@
                 ></v-select>
               </v-col>
             </v-row>
-            
+
             <v-row>
               <v-col cols="12" md="6">
                 <v-text-field
@@ -132,7 +141,7 @@
                   @update:model-value="applyAdvancedFilters"
                 ></v-text-field>
               </v-col>
-              
+
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="filters.createdBefore"
@@ -144,7 +153,7 @@
                 ></v-text-field>
               </v-col>
             </v-row>
-            
+
             <v-row v-if="filters.status === 'completed'">
               <v-col cols="12" md="6">
                 <v-text-field
@@ -156,7 +165,7 @@
                   @update:model-value="applyAdvancedFilters"
                 ></v-text-field>
               </v-col>
-              
+
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="filters.completedBefore"
@@ -272,7 +281,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-    
+
     <!-- Export Progress Bar -->
     <export-progress-bar
       @download="handleDownloadExport"
@@ -286,6 +295,7 @@
 <script setup>
 import { ref, reactive, onMounted, defineProps } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
+import { useExportStore } from '../stores/exportStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
 import ExportProgressBar from './ExportProgressBar.vue'
 
@@ -297,6 +307,7 @@ const props = defineProps({
 })
 
 const taskStore = useTaskStore()
+const exportStore = useExportStore()
 
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
@@ -311,7 +322,7 @@ const filters = reactive({
   priority: '',
   sortBy: 'createdAt',
   sortOrder: 'desc',
-  
+
   // Advanced filters
   search: '',
   createdAfter: '',
@@ -358,7 +369,7 @@ const timeRangeOptions = [
 function updateFilters() {
   // Transform any special format filters (like date and time ranges)
   const transformedFilters = transformFilters()
-  
+
   // Update the store with transformed filters
   taskStore.updateFilters(transformedFilters)
 }
@@ -371,29 +382,33 @@ function applyAdvancedFilters() {
 // Transform filters into API-compatible format
 function transformFilters() {
   const transformed = { ...filters }
-  
+
   // Convert date strings to ISO format
   if (filters.createdAfter) {
     transformed.createdAfter = new Date(filters.createdAfter).toISOString()
   }
-  
+
   if (filters.createdBefore) {
-    transformed.createdBefore = new Date(`${filters.createdBefore}T23:59:59`).toISOString()
+    transformed.createdBefore = new Date(
+      `${filters.createdBefore}T23:59:59`
+    ).toISOString()
   }
-  
+
   if (filters.completedAfter) {
     transformed.completedAfter = new Date(filters.completedAfter).toISOString()
   }
-  
+
   if (filters.completedBefore) {
-    transformed.completedBefore = new Date(`${filters.completedBefore}T23:59:59`).toISOString()
+    transformed.completedBefore = new Date(
+      `${filters.completedBefore}T23:59:59`
+    ).toISOString()
   }
-  
+
   // Handle estimated time range transformation
   if (filters.estimatedTimeRange) {
     // Remove the range property since it's just for UI
     delete transformed.estimatedTimeRange
-    
+
     // Add the appropriate time range filters
     switch (filters.estimatedTimeRange) {
       case 'lt30':
@@ -416,14 +431,14 @@ function transformFilters() {
         break
     }
   }
-  
+
   // Remove any empty filters
-  Object.keys(transformed).forEach(key => {
+  Object.keys(transformed).forEach((key) => {
     if (transformed[key] === '' || transformed[key] === null) {
       delete transformed[key]
     }
   })
-  
+
   return transformed
 }
 
@@ -494,48 +509,50 @@ async function exportTasks(format) {
   try {
     // Apply the current filters first to ensure store is updated
     updateFilters()
-    
+
     // Start background export job with store's filters
-    await taskStore.exportTasks(format);
-    
+    await exportStore.exportTasks(format, taskStore.filters)
+
     // No need to show alert, progress bar will appear automatically
   } catch (error) {
-    console.error('Export failed to start:', error);
-    window.alert(`Export failed to start: ${error.message}`);
+    console.error('Export failed to start:', error)
+    window.alert(`Export failed to start: ${error.message}`)
   }
 }
 
 async function handleDownloadExport(jobId) {
   try {
-    console.log('TaskList download handler for job:', jobId);
-    
+    console.log('TaskList download handler for job:', jobId)
+
     // Use the store method to handle download
-    await taskStore.downloadExport(jobId);
-    
+    await exportStore.downloadExport(jobId)
+
     // Reset active status (but keep details visible for a while)
-    setTimeout(() => {
-      taskStore.exportProgress.active = false;
-    }, 3000);
-    
+    window.setTimeout(() => {
+      exportStore.exportProgress.active = false
+    }, 3000)
   } catch (error) {
-    console.error('Download failed:', error);
-    window.alert(`Download failed: ${error.message}`);
+    console.error('Download failed:', error)
+    window.alert(`Download failed: ${error.message}`)
   }
 }
 
 function handlePauseExport(jobId) {
-  taskStore.pauseExport(jobId);
+  exportStore.pauseExport(jobId)
 }
 
 function handleResumeExport(jobId) {
-  taskStore.resumeExport(jobId);
+  exportStore.resumeExport(jobId)
 }
 
 function closeExportProgress() {
-  taskStore.exportProgress.active = false;
+  exportStore.exportProgress.active = false
 }
 
 onMounted(() => {
   taskStore.fetchTasks()
+
+  // Initialize socket listeners for export updates
+  exportStore.setupExportSocketListeners()
 })
 </script>

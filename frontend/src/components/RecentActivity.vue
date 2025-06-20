@@ -20,7 +20,11 @@
         >
           <div class="activity-icon">
             <v-icon :color="getStatusColor(activity.status)">
-              {{ activity.title.startsWith('Export:') ? 'mdi-file-export' : getStatusIcon(activity.status) }}
+              {{
+                activity.title.startsWith('Export:')
+                  ? 'mdi-file-export'
+                  : getStatusIcon(activity.status)
+              }}
             </v-icon>
           </div>
 

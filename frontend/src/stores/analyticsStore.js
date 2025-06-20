@@ -67,7 +67,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       color: '#FF5252'
     }
   ])
-  
+
   const exportsTimeSeriesData = computed(() => ({
     labels: analytics.value.exportsOverTime?.labels || [],
     datasets: [

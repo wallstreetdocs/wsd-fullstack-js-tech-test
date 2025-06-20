@@ -42,7 +42,7 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config)
-      
+
       if (!response.ok) {
         // Try to get error message from response
         const errorText = await response.text()
@@ -55,9 +55,11 @@ class ApiClient {
           // Use text as is
           errorMessage = errorText
         }
-        throw new Error(errorMessage || `HTTP error! status: ${response.status}`)
+        throw new Error(
+          errorMessage || `HTTP error! status: ${response.status}`
+        )
       }
-      
+
       // Process response based on format
       if (responseFormat === 'blob') {
         return await response.blob()
@@ -95,10 +97,14 @@ class ApiClient {
    * @returns {Promise<Object|Blob|string>} API response data
    */
   async post(endpoint, data, responseFormat = null) {
-    return this.request(endpoint, {
-      method: 'POST',
-      body: data
-    }, responseFormat)
+    return this.request(
+      endpoint,
+      {
+        method: 'POST',
+        body: data
+      },
+      responseFormat
+    )
   }
 
   /**
@@ -205,9 +211,9 @@ class ApiClient {
     return this.post('/exportTasks', {
       format,
       filters
-    });
+    })
   }
-  
+
   /**
    * Gets the status of an export job
    * @async
@@ -215,9 +221,9 @@ class ApiClient {
    * @returns {Promise<Object>} Export job status and metadata
    */
   async getExportStatus(jobId) {
-    return this.get(`/exportTasks/${jobId}`);
+    return this.get(`/exportTasks/${jobId}`)
   }
-  
+
   /**
    * Downloads a completed export file
    * @async
@@ -225,11 +231,15 @@ class ApiClient {
    * @returns {Promise<Blob>} Exported file as a blob for download
    */
   async downloadExport(jobId) {
-    return this.request(`/exportTasks/${jobId}/download`, {
-      method: 'GET'
-    }, 'blob');
+    return this.request(
+      `/exportTasks/${jobId}/download`,
+      {
+        method: 'GET'
+      },
+      'blob'
+    )
   }
-  
+
   /**
    * Gets export history
    * @async
@@ -237,7 +247,7 @@ class ApiClient {
    * @returns {Promise<Object>} Export history with pagination
    */
   async getExportHistory(params = {}) {
-    return this.get('/exportHistory', params);
+    return this.get('/exportHistory', params)
   }
 }
 

@@ -1,18 +1,37 @@
 <template>
   <div class="chart-wrapper">
     <div v-if="hasData" class="d-flex justify-center">
-      <svg :width="width" :height="height" viewBox="0 0 400 200" class="responsive-chart">
+      <svg
+        :width="width"
+        :height="height"
+        viewBox="0 0 400 200"
+        class="responsive-chart"
+      >
         <!-- X-axis line -->
-        <line x1="30" y1="170" x2="380" y2="170" stroke="#666" stroke-width="1" />
-        
+        <line
+          x1="30"
+          y1="170"
+          x2="380"
+          y2="170"
+          stroke="#666"
+          stroke-width="1"
+        />
+
         <!-- Y-axis line -->
         <line x1="30" y1="20" x2="30" y2="170" stroke="#666" stroke-width="1" />
-        
+
         <!-- Chart title -->
-        <text x="200" y="15" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">
+        <text
+          x="200"
+          y="15"
+          text-anchor="middle"
+          font-size="14"
+          font-weight="bold"
+          fill="#333"
+        >
           {{ title }}
         </text>
-        
+
         <!-- Data line path -->
         <path
           :d="linePath"
@@ -22,15 +41,10 @@
           stroke-linecap="round"
           stroke-linejoin="round"
         />
-        
+
         <!-- Data area path -->
-        <path
-          v-if="fillArea"
-          :d="areaPath"
-          :fill="areaColor"
-          opacity="0.2"
-        />
-        
+        <path v-if="fillArea" :d="areaPath" :fill="areaColor" opacity="0.2" />
+
         <!-- Data points -->
         <circle
           v-for="(point, index) in chartPoints"
@@ -45,9 +59,12 @@
         >
           <title>{{ `${labels[index]}: ${data[index]}` }}</title>
         </circle>
-        
+
         <!-- X-axis labels (filter to show each month only once) -->
-        <template v-for="(label, index) in filteredLabels" :key="'x-label-' + index">
+        <template
+          v-for="(label, index) in filteredLabels"
+          :key="'x-label-' + index"
+        >
           <text
             :x="xScale(label.index)"
             y="185"
@@ -58,7 +75,7 @@
             {{ label.text }}
           </text>
         </template>
-        
+
         <!-- Y-axis labels -->
         <text
           v-for="(value, index) in yAxisLabels"
@@ -147,9 +164,12 @@ const props = defineProps({
 })
 
 // Determine if we have valid data to show
-const hasData = computed(() => 
-  props.data && props.data.length > 0 && 
-  props.labels && props.labels.length > 0
+const hasData = computed(
+  () =>
+    props.data &&
+    props.data.length > 0 &&
+    props.labels &&
+    props.labels.length > 0
 )
 
 // Calculate min and max values for the y-axis
@@ -165,27 +185,27 @@ const yAxisLabels = computed(() => {
   const max = maxValue.value
   const step = Math.ceil((max - min) / 4) // We want about 5 labels
   const labels = []
-  
+
   for (let i = 0; i <= 4; i++) {
-    labels.push(min + (step * i))
+    labels.push(min + step * i)
   }
-  
+
   return labels
 })
 
 // Filter labels to show each month only once
 const filteredLabels = computed(() => {
   if (!props.labels || props.labels.length === 0) return []
-  
+
   const uniqueMonths = new Map()
-  
+
   // Find the first occurrence of each month
   props.labels.forEach((label, index) => {
     if (!uniqueMonths.has(label)) {
       uniqueMonths.set(label, index)
     }
   })
-  
+
   // Convert to array of {index, text} objects
   return Array.from(uniqueMonths.entries()).map(([text, index]) => ({
     text,
@@ -199,7 +219,7 @@ const xScale = computed(() => {
     // X-axis positioning, with padding for the y-axis
     const chartWidth = 350
     const padding = 30
-    return padding + (index * (chartWidth / (props.data.length - 1 || 1)))
+    return padding + index * (chartWidth / (props.data.length - 1 || 1))
   }
 })
 
@@ -211,14 +231,14 @@ const yScale = computed(() => {
     const min = minValue.value
     const max = maxValue.value
     const normalizedValue = (value - min) / (max - min || 1)
-    return padding + chartHeight - (normalizedValue * chartHeight)
+    return padding + chartHeight - normalizedValue * chartHeight
   }
 })
 
 // Generate SVG coordinates for each data point
 const chartPoints = computed(() => {
   if (!hasData.value) return []
-  
+
   return props.data.map((value, index) => ({
     x: xScale.value(index),
     y: yScale.value(value)
@@ -228,7 +248,7 @@ const chartPoints = computed(() => {
 // Generate SVG path for the line connecting all points
 const linePath = computed(() => {
   if (!hasData.value || chartPoints.value.length === 0) return ''
-  
+
   return chartPoints.value.reduce((path, point, index) => {
     if (index === 0) {
       return `M ${point.x} ${point.y}`
@@ -241,19 +261,19 @@ const linePath = computed(() => {
 // Generate SVG path for the filled area under the line
 const areaPath = computed(() => {
   if (!hasData.value || chartPoints.value.length === 0) return ''
-  
+
   const points = chartPoints.value
   let path = linePath.value
-  
+
   // Add bottom right corner
   path += ` L ${points[points.length - 1].x} 170`
-  
+
   // Add bottom left corner
   path += ` L ${points[0].x} 170`
-  
+
   // Close the path
   path += ' Z'
-  
+
   return path
 })
 </script>
