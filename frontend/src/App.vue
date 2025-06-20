@@ -125,17 +125,25 @@ function removeNotification(id) {
 }
 
 onMounted(() => {
+  // Initialize all socket listeners first
   analyticsStore.initializeSocketListeners()
   taskStore.initializeSocketListeners()
-  exportStore.setupExportSocketListeners()
+  exportStore.initializeSocketListeners()
+  
+  // Only need to connect once since they share the same socket instance
   analyticsStore.connect()
+  
+  // Fetch initial data
   analyticsStore.fetchAnalytics()
 })
 
 onUnmounted(() => {
+  // Clean up all listeners
   analyticsStore.cleanup()
   taskStore.cleanup()
   exportStore.cleanup()
+  
+  // Only need to disconnect once
   analyticsStore.disconnect()
 })
 </script>

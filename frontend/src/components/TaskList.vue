@@ -551,8 +551,5 @@ function closeExportProgress() {
 
 onMounted(() => {
   taskStore.fetchTasks()
-
-  // Initialize socket listeners for export updates
-  exportStore.setupExportSocketListeners()
 })
 </script>

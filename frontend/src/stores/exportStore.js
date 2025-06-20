@@ -80,8 +80,8 @@ export const useExportStore = defineStore('exports', () => {
         createdAt: new Date()
       }
 
-      // Set up socket listeners for this export if not already listening
-      setupExportSocketListeners()
+      // Make sure socket listeners are initialized
+      initializeSocketListeners()
 
       return response.data
     } catch (err) {
@@ -211,9 +211,9 @@ export const useExportStore = defineStore('exports', () => {
 
   /**
    * Sets up socket event listeners for export progress tracking
-   * @function setupExportSocketListeners
+   * @function initializeSocketListeners
    */
-  function setupExportSocketListeners() {
+  function initializeSocketListeners() {
     // Export progress updates
     socket.on('export-progress', (data) => {
       const { jobId, status, progress, processedItems, totalItems } = data
@@ -312,6 +312,26 @@ export const useExportStore = defineStore('exports', () => {
   }
 
   /**
+   * Connects to Socket.IO server
+   * @function connect
+   */
+  function connect() {
+    if (!socket.connected) {
+      socket.connect()
+    }
+  }
+
+  /**
+   * Disconnects from Socket.IO server
+   * @function disconnect
+   */
+  function disconnect() {
+    if (socket.connected) {
+      socket.disconnect()
+    }
+  }
+
+  /**
    * Removes Socket.IO event listeners
    * @function cleanup
    */
@@ -321,6 +341,7 @@ export const useExportStore = defineStore('exports', () => {
     socket.off('export-failed')
     socket.off('export-download-ready')
     socket.off('active-exports')
+    socket.off('connect')
   }
 
   return {
@@ -335,7 +356,9 @@ export const useExportStore = defineStore('exports', () => {
     exportProgress,
     activeExports,
     exportHistory,
-    setupExportSocketListeners,
-    cleanup
+    initializeSocketListeners,
+    cleanup,
+    connect,
+    disconnect
   }
 })
