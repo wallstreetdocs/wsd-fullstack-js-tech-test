@@ -160,7 +160,7 @@
           <v-tooltip text="Retry">
             <template #activator="{ props }">
               <v-btn
-                v-if="item.status === 'failed'"
+                v-if="item.status === 'failed' || item.status === 'connection-error'"
                 v-bind="props"
                 icon
                 variant="text"
@@ -245,7 +245,9 @@ function getStatusColor(status) {
     processing: 'info',
     completed: 'success',
     failed: 'error',
-    paused: 'warning'
+    paused: 'warning',
+    'connection-error': 'red-darken-4',
+    reconnecting: 'amber-darken-3'
   }
   return colorMap[status] || 'grey'
 }

@@ -157,14 +157,89 @@ class ExportHandler extends EventEmitter {
       }
     });
     
+    // Handle single export status request
+    socket.on('get-export-status', async (data) => {
+      try {
+        const { jobId } = data;
+        
+        if (!jobId) {
+          throw new Error('Job ID is required');
+        }
+        
+        // Get the current status of the job
+        const job = await ExportService.getExportJob(jobId);
+        
+        if (!job) {
+          throw new Error(`Export job ${jobId} not found`);
+        }
+        
+        // Send back the job status
+        socket.emit('export-status', {
+          jobId: job._id.toString(),
+          status: job.status,
+          progress: job.progress,
+          processedItems: job.processedItems || 0,
+          totalItems: job.totalItems || 1,
+          filename: job.filename
+        });
+        
+        // If the job was completed while client was disconnected, also send the completed event
+        if (job.status === 'completed') {
+          socket.emit('export-completed', {
+            jobId: job._id.toString(),
+            filename: job.filename
+          });
+        }
+        
+        // If the job was in progress but stalled, attempt to resume it
+        if (job.status === 'processing' && Date.now() - job.updatedAt > 30000) {
+          console.log(`Detected stalled job ${jobId}, attempting to resume processing`);
+          
+          // Ensure client ID is up to date in case of reconnection
+          job.clientId = socket.id;
+          await job.save();
+          
+          // Update to processing if it wasn't
+          if (job.status !== 'processing') {
+            await job.resume();
+          }
+          
+          // Re-queue the job if needed
+          await ExportService.resumeExportJob(jobId);
+        }
+      } catch (error) {
+        console.error('Error getting export status:', error);
+        socket.emit('export-error', { message: 'Failed to get export status' });
+      }
+    });
+    
     // Check for in-progress exports on reconnection
     socket.on('reconnect-exports', async () => {
       try {
-        const jobs = await ExportService.getClientExportJobs(socket.id);
-        const activeJobs = jobs.filter(job => 
+        // Get all jobs for this client
+        const allJobs = await ExportService.getClientExportJobs(socket.id);
+        
+        // Filter active jobs (processing or paused)
+        const activeJobs = allJobs.filter(job => 
           job.status === 'processing' || job.status === 'paused');
         
+        // Send active jobs to client
         socket.emit('active-exports', { jobs: activeJobs });
+        
+        // Update client ID for all active jobs to ensure they're associated with the new socket connection
+        for (const job of activeJobs) {
+          if (job.clientId !== socket.id) {
+            job.clientId = socket.id;
+            await job.save();
+            console.log(`Updated client ID for job ${job._id} to ${socket.id}`);
+          }
+          
+          // If any jobs were processing during disconnect, they might need to be resumed
+          if (job.status === 'processing' && Date.now() - job.updatedAt > 30000) {
+            console.log(`Job ${job._id} appears stalled, queueing for processing`);
+            await ExportService.resumeExportJob(job._id);
+          }
+        }
       } catch (error) {
         console.error('Error reconnecting to exports:', error);
       }

@@ -226,6 +226,23 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       socket.disconnect()
     }
   }
+  
+  /**
+   * Resets connection and attempts to reconnect
+   * @function resetConnection
+   */
+  function resetConnection() {
+    // Use our new resetConnection method from socket.js
+    socket.resetConnection()
+  }
+
+  // Auto-initialize socket listeners when store is first used
+  initializeSocketListeners()
+  
+  // If socket isn't connected yet, connect it
+  if (!socket.connected) {
+    connect()
+  }
 
   return {
     analytics,
@@ -244,6 +261,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     initializeSocketListeners,
     cleanup,
     connect,
-    disconnect
+    disconnect,
+    resetConnection
   }
 })

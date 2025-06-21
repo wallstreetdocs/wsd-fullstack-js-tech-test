@@ -45,6 +45,22 @@
             @click="$emit('resume', exportProgress.jobId)"
           ></v-btn>
           <v-btn
+            v-if="showReconnectButton"
+            size="small"
+            color="info"
+            variant="text"
+            icon="mdi-reload"
+            @click="handleReconnect"
+          ></v-btn>
+          <v-btn
+            v-if="showRetryButton"
+            size="small"
+            color="warning"
+            variant="text"
+            icon="mdi-refresh"
+            @click="handleRetry"
+          ></v-btn>
+          <v-btn
             size="small"
             color="default"
             variant="text"
@@ -75,7 +91,7 @@
               {{ exportProgress.format?.toUpperCase() }} Export
             </template>
           </div>
-          <div v-if="exportProgress.error" class="text-caption">
+          <div v-if="exportProgress.error && exportProgress.status !== 'completed'" class="text-caption">
             Error: {{ exportProgress.error }}
           </div>
         </div>
@@ -116,6 +132,10 @@ const formatStatus = computed(() => {
       return 'Completed'
     case 'failed':
       return 'Failed'
+    case 'connection-error':
+      return 'Connection lost - waiting to reconnect...'
+    case 'reconnecting':
+      return 'Reconnecting...'
     default:
       return ''
   }
@@ -133,6 +153,10 @@ const progressColor = computed(() => {
       return 'success'
     case 'failed':
       return 'error'
+    case 'connection-error':
+      return 'grey'
+    case 'reconnecting':
+      return 'orange'
     default:
       return 'primary'
   }
@@ -149,6 +173,36 @@ const showPauseButton = computed(() => {
 const showResumeButton = computed(() => {
   return exportProgress.value.status === 'paused'
 })
+
+// Single button for connection issues - combines reconnect and retry functionality
+const showReconnectButton = computed(() => {
+  return exportProgress.value.status === 'connection-error'
+})
+
+// Show retry button only for failed exports, not connection errors
+const showRetryButton = computed(() => {
+  return exportProgress.value.status === 'failed'
+})
+
+function handleReconnect() {
+  // Reset the socket connection first
+  exportStore.resetConnection()
+  
+  // If we have a job ID, also try to resume/retry the export after reconnection
+  if (exportProgress.value.jobId) {
+    // Small delay to allow reconnection to complete
+    setTimeout(() => {
+      exportStore.refreshExportStatus(exportProgress.value.jobId)
+    }, 1000)
+  }
+}
+
+function handleRetry() {
+  // Use the retry function from export store
+  if (exportProgress.value.jobId) {
+    exportStore.retryExport(exportProgress.value.jobId)
+  }
+}
 </script>
 
 <style scoped>

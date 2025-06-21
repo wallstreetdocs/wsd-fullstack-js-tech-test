@@ -124,11 +124,68 @@ function removeNotification(id) {
   analyticsStore.removeNotification(id)
 }
 
+// Handle socket reconnection events
+function setupSocketEventListeners() {
+  // Only add the critical handlers we actually need
+  window.addEventListener('socket:connect', handleSocketConnect)
+  window.addEventListener('socket:disconnect', handleSocketDisconnect)
+  window.addEventListener('socket:reconnect_failed', handleReconnectFailed)
+}
+
+// Clean up socket event listeners
+function removeSocketEventListeners() {
+  window.removeEventListener('socket:connect', handleSocketConnect)
+  window.removeEventListener('socket:disconnect', handleSocketDisconnect)
+  window.removeEventListener('socket:reconnect_failed', handleReconnectFailed)
+}
+
+// Handler for socket connect event - the most important one for exports
+function handleSocketConnect() {
+  console.log('App: Socket connected event')
+  
+  // When reconnected, refresh any active export
+  if (exportStore.exportProgress.active && exportStore.exportProgress.jobId) {
+    console.log('App: Refreshing export status after reconnection')
+    
+    // Clear any connection error messages
+    if (exportStore.exportProgress.status === 'connection-error') {
+      exportStore.exportProgress.error = null
+    }
+    
+    exportStore.refreshExportStatus(exportStore.exportProgress.jobId)
+  }
+}
+
+// Handler for socket disconnect event
+function handleSocketDisconnect(event) {
+  console.log(`App: Socket disconnected event: ${event.detail?.reason}`)
+  
+  // Update any active export to show connection error
+  if (exportStore.exportProgress.active && exportStore.exportProgress.jobId) {
+    if (['processing', 'paused'].includes(exportStore.exportProgress.status)) {
+      exportStore.exportProgress.status = 'connection-error'
+    }
+  }
+}
+
+// Handler for when all reconnection attempts fail
+function handleReconnectFailed() {
+  console.log('App: Socket reconnection failed after all attempts')
+  
+  // Update any active export to show permanent failure
+  if (exportStore.exportProgress.active) {
+    exportStore.exportProgress.error = 'Connection lost. Please try again later.'
+  }
+}
+
 onMounted(() => {
   // Initialize all socket listeners first
   analyticsStore.initializeSocketListeners()
   taskStore.initializeSocketListeners()
   exportStore.initializeSocketListeners()
+  
+  // Setup custom socket event listeners
+  setupSocketEventListeners()
   
   // Only need to connect once since they share the same socket instance
   analyticsStore.connect()
@@ -138,6 +195,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // Remove event listeners
+  removeSocketEventListeners()
+  
   // Clean up all listeners
   analyticsStore.cleanup()
   taskStore.cleanup()

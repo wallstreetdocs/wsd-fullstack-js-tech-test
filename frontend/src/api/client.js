@@ -221,7 +221,13 @@ class ApiClient {
    * @returns {Promise<Object>} Export job status and metadata
    */
   async getExportStatus(jobId) {
-    return this.get(`/exportTasks/${jobId}`)
+    try {
+      const response = await this.get(`/exportTasks/${jobId}`);
+      return response;
+    } catch (error) {
+      console.error(`Error getting export status for job ${jobId}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -231,12 +237,17 @@ class ApiClient {
    * @returns {Promise<Blob>} Exported file as a blob for download
    */
   async downloadExport(jobId) {
-    // Directly fetch the file as a blob - the server already knows the format
-    return this.request(
-      `/exportTasks/${jobId}/download`,
-      { method: 'GET' },
-      'blob'
-    )
+    try {
+      // Directly fetch the file as a blob - the server already knows the format
+      return await this.request(
+        `/exportTasks/${jobId}/download`,
+        { method: 'GET' },
+        'blob'
+      );
+    } catch (error) {
+      console.error(`Error downloading export job ${jobId}:`, error);
+      throw error;
+    }
   }
 
   /**

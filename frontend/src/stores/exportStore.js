@@ -4,7 +4,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
 
@@ -55,6 +55,7 @@ export const useExportStore = defineStore('exports', () => {
     exportProgress.format = format
     exportProgress.progress = 0
     exportProgress.error = null
+    exportProgress.status = 'pending'
 
     try {
       const queryParams = { ...filters }
@@ -82,10 +83,24 @@ export const useExportStore = defineStore('exports', () => {
 
       return response.data
     } catch (err) {
-      exportProgress.error = err.message
+      // Handle network errors by showing in progress bar instead of alert
+      if (err.message && err.message.includes('NetworkError')) {
+        exportProgress.status = 'connection-error'
+        exportProgress.error = 'Network connection issue'
+        
+        // Create a temporary job ID so we can retry later if needed
+        if (!exportProgress.jobId) {
+          exportProgress.jobId = 'pending-' + Date.now()
+        }
+      } else {
+        // For other errors
+        exportProgress.status = 'failed'
+        exportProgress.error = err.message
+      }
+      
+      // Still set the error value for internal tracking
       error.value = err.message
       console.error('Error starting export:', err)
-      throw err
     } finally {
       loading.value = false
     }
@@ -110,10 +125,31 @@ export const useExportStore = defineStore('exports', () => {
       // Download and trigger browser save
       const blob = await apiClient.downloadExport(jobId)
       triggerDownload(blob, filename)
+      
+      // Clear any error messages after a successful download
+      if (jobId === exportProgress.jobId) {
+        exportProgress.error = null
+      }
+      
+      if (activeExports[jobId]) {
+        activeExports[jobId].error = null
+      }
+      
+      return true
     } catch (err) {
-      error.value = err.message
       console.error('Error downloading export:', err)
-      throw err
+      
+      // Set the error message but don't change the status
+      // This way, users can still retry the download
+      if (jobId === exportProgress.jobId) {
+        exportProgress.error = `Download failed: ${err.message}`
+      }
+      
+      if (activeExports[jobId]) {
+        activeExports[jobId].error = `Download failed: ${err.message}`
+      }
+      
+      error.value = err.message
     }
   }
   
@@ -205,9 +241,41 @@ export const useExportStore = defineStore('exports', () => {
     if (!jobId) return
 
     try {
-      socket.emit('retry-export', { jobId })
+      // Check if this is a temporary ID from a connection error
+      if (jobId.startsWith('pending-')) {
+        console.log('Retrying export with new connection')
+        
+        // Start a completely new export with the same parameters
+        const format = exportProgress.format || 'csv'
+        const filters = {} // We don't have the original filters, using empty set
+        
+        // Reset the progress
+        exportProgress.active = true
+        exportProgress.status = 'pending'
+        exportProgress.progress = 0
+        exportProgress.error = null
+        
+        // Start a new export
+        try {
+          const response = await apiClient.exportTasks(format, filters)
+          
+          // Update with new job ID
+          exportProgress.jobId = response.data.jobId
+          exportProgress.status = response.data.status
+          
+          console.log(`Started new export job: ${response.data.jobId}`)
+        } catch (error) {
+          // Handle retry failure
+          exportProgress.status = 'failed'
+          exportProgress.error = 'Retry failed: ' + error.message
+        }
+      } else {
+        // Use the socket to retry an existing export
+        socket.emit('retry-export', { jobId })
+      }
     } catch (err) {
       console.error('Error retrying export:', err)
+      exportProgress.error = 'Retry failed: ' + err.message
     }
   }
 
@@ -246,6 +314,12 @@ export const useExportStore = defineStore('exports', () => {
 
       // Update export progress if it's the current export
       if (jobId === exportProgress.jobId) {
+        // If we're getting progress updates, we should clear any previous error
+        // messages since the export is working again
+        if (status === 'processing' && exportProgress.error) {
+          exportProgress.error = null
+        }
+        
         exportProgress.status = status
         exportProgress.progress = progress
         exportProgress.processedItems = processedItems
@@ -256,6 +330,11 @@ export const useExportStore = defineStore('exports', () => {
       if (activeExports[jobId]) {
         activeExports[jobId].status = status
         activeExports[jobId].progress = progress
+        
+        // Clear any errors in the active exports list
+        if (status === 'processing') {
+          activeExports[jobId].error = null
+        }
       }
     })
 
@@ -268,6 +347,8 @@ export const useExportStore = defineStore('exports', () => {
         exportProgress.status = 'completed'
         exportProgress.progress = 100
         exportProgress.filename = filename
+        // Clear any error messages on completion
+        exportProgress.error = null
 
         // Make sure the progress bar stays visible
         exportProgress.active = true
@@ -279,6 +360,8 @@ export const useExportStore = defineStore('exports', () => {
         activeExports[jobId].progress = 100
         activeExports[jobId].filename = filename
         activeExports[jobId].downloadReady = true
+        // Clear any error messages
+        activeExports[jobId].error = null
       }
     })
 
@@ -312,12 +395,41 @@ export const useExportStore = defineStore('exports', () => {
 
     // Check for active exports on reconnection
     socket.on('connect', () => {
+      console.log('Export store: Reconnected, checking for active exports...')
       socket.emit('reconnect-exports')
+      
+      // If there was an active export that might have been interrupted
+      if (exportProgress.active && exportProgress.jobId) {
+        console.log(`Export store: Reconnected with active export job ${exportProgress.jobId}`)
+        
+        // Request latest status of the specific job
+        socket.emit('get-client-exports')
+        
+        // For jobs that were in progress or paused, we need to resume them
+        if (['processing', 'paused'].includes(exportProgress.status)) {
+          console.log(`Export store: Attempting to resume job ${exportProgress.jobId} after reconnection`)
+          
+          // Small delay to ensure server has time to process the reconnect-exports first
+          setTimeout(() => {
+            // If it was paused, explicitly resume it
+            if (exportProgress.status === 'paused') {
+              socket.emit('resume-export', { jobId: exportProgress.jobId })
+            } else {
+              // If it was in progress, re-request its status which will trigger updates
+              socket.emit('get-export-status', { jobId: exportProgress.jobId })
+            }
+          }, 500)
+        }
+      }
     })
+
+    // We removed these handlers in favor of the global handlers in App.vue
+    // that update the export state when needed. This is more centralized and cleaner.
 
     // Handle active exports on reconnection
     socket.on('active-exports', (data) => {
       const { jobs } = data
+      console.log(`Export store: Received ${jobs.length} active export(s) after reconnection`)
 
       // Update active exports
       jobs.forEach((job) => {
@@ -326,14 +438,52 @@ export const useExportStore = defineStore('exports', () => {
           format: job.format,
           status: job.status,
           progress: job.progress,
-          createdAt: new Date(job.createdAt)
+          createdAt: new Date(job.createdAt),
+          processedItems: job.processedItems || 0,
+          totalItems: job.totalItems || 1
         }
 
-        // If job was paused, update UI
-        if (job.status === 'paused' && job._id === exportProgress.jobId) {
-          exportProgress.status = 'paused'
+        // Update current export progress if this is the active job
+        if (job._id === exportProgress.jobId) {
+          // Restore the active flag if it was previously active
+          exportProgress.active = true
+          exportProgress.status = job.status
+          exportProgress.progress = job.progress
+          exportProgress.processedItems = job.processedItems || 0
+          exportProgress.totalItems = job.totalItems || 1
+          
+          // For completed jobs, ensure we have the filename for download
+          if (job.status === 'completed' && job.filename) {
+            exportProgress.filename = job.filename
+          }
+          
+          // If the job is paused or still processing, we might need to resume it
+          if (['paused', 'processing'].includes(job.status)) {
+            console.log(`Active job ${job._id} is ${job.status}, might need resuming`)
+          }
         }
       })
+      
+      // Handle case where current export isn't in active jobs (might be complete or failed)
+      if (exportProgress.active && exportProgress.jobId && 
+          !jobs.some(job => job._id === exportProgress.jobId)) {
+        // The job might be complete or failed, get its current status
+        socket.emit('get-export-status', { jobId: exportProgress.jobId })
+      }
+    })
+    
+    // Add handler for export status check
+    socket.on('export-status', (data) => {
+      if (data.jobId === exportProgress.jobId) {
+        console.log(`Received export status update for job ${data.jobId}: ${data.status}`)
+        exportProgress.status = data.status
+        exportProgress.progress = data.progress
+        
+        // For completed jobs that were interrupted
+        if (data.status === 'completed' && !exportProgress.filename) {
+          exportProgress.filename = data.filename
+        }
+      }
     })
   }
 
@@ -358,6 +508,68 @@ export const useExportStore = defineStore('exports', () => {
   }
 
   /**
+   * Checks and refreshes the status of an export job
+   * @async
+   * @function refreshExportStatus
+   * @param {string} jobId - Export job ID to refresh
+   */
+  async function refreshExportStatus(jobId = exportProgress.jobId) {
+    if (!jobId) return
+    
+    try {
+      console.log(`Refreshing export status for job ${jobId}`)
+      const response = await apiClient.getExportStatus(jobId)
+      
+      if (response.success) {
+        const jobData = response.data
+        
+        // Update the export progress
+        exportProgress.status = jobData.status
+        exportProgress.progress = jobData.progress
+        exportProgress.processedItems = jobData.processedItems || 0
+        exportProgress.totalItems = jobData.totalItems || 1
+        
+        // Clear error message if job is working fine
+        if (['processing', 'completed', 'paused'].includes(jobData.status)) {
+          exportProgress.error = null
+        }
+        
+        // For completed jobs, ensure we have the filename
+        if (jobData.status === 'completed' && jobData.filename) {
+          exportProgress.filename = jobData.filename
+          exportProgress.active = true // Keep the progress bar visible
+        }
+        
+        // Update active exports
+        if (activeExports[jobId]) {
+          activeExports[jobId].status = jobData.status
+          activeExports[jobId].progress = jobData.progress
+          
+          // Clear error in active exports list
+          if (['processing', 'completed', 'paused'].includes(jobData.status)) {
+            activeExports[jobId].error = null
+          }
+        }
+        
+        // If job was in progress but appears to be stalled, try to resume it
+        if (jobData.status === 'processing') {
+          const lastUpdated = new Date(jobData.updatedAt).getTime()
+          const now = Date.now()
+          
+          if (now - lastUpdated > 30000) { // 30 seconds with no update
+            console.log(`Job ${jobId} appears stalled, attempting to resume`)
+            resumeExport(jobId)
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Error refreshing export status for job ${jobId}:`, err)
+      // We don't update the UI status here - we'll keep the previous state
+      // This avoids showing errors for temporary network issues
+    }
+  }
+
+  /**
    * Removes Socket.IO event listeners
    * @function cleanup
    */
@@ -367,8 +579,17 @@ export const useExportStore = defineStore('exports', () => {
     socket.off('export-failed')
     socket.off('export-download-ready')
     socket.off('active-exports')
+    socket.off('export-status')
     socket.off('connect')
+    socket.off('connect_error')
+    socket.off('disconnect')
+    socket.off('reconnecting')
   }
+  
+  // We've simplified the connection monitoring by using the App.vue global handlers
+  
+  // Auto-initialize socket listeners when store is first used
+  initializeSocketListeners()
 
   return {
     loading,
@@ -379,12 +600,14 @@ export const useExportStore = defineStore('exports', () => {
     resumeExport,
     retryExport,
     getExportHistory,
+    refreshExportStatus,
     exportProgress,
     activeExports,
     exportHistory,
     initializeSocketListeners,
     cleanup,
     connect,
-    disconnect
+    disconnect,
+    resetConnection: socket.resetConnection
   }
 })
