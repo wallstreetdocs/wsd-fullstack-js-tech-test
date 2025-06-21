@@ -80,9 +80,6 @@ export const useExportStore = defineStore('exports', () => {
         createdAt: new Date()
       }
 
-      // Make sure socket listeners are initialized
-      initializeSocketListeners()
-
       return response.data
     } catch (err) {
       exportProgress.error = err.message
