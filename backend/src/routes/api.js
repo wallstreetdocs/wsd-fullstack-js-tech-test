@@ -381,15 +381,6 @@ router.post('/exportTasks', async (req, res, next) => {
         `Export job started: ${format.toUpperCase()} export`,
         'info'
       );
-      
-      // Immediately send a processing status to prevent the "stuck on preparing" issue
-      socketHandlers.io.emit('export-progress', {
-        jobId: exportJob._id,
-        status: 'processing',
-        progress: 0,
-        processedItems: 0,
-        totalItems: 1 // Initial placeholder
-      });
     }
   } catch (error) {
     next(error);
@@ -533,22 +524,25 @@ router.post('/exportTasks/:id/complete', async (req, res, next) => {
     
     // Emit events to notify clients
     if (socketHandlers) {
-      socketHandlers.io.emit('export-completed', {
-        jobId: exportJob._id,
-        filename: exportJob.filename
-      });
-      
-      if (exportJob.clientId) {
-        socketHandlers.io.to(exportJob.clientId).emit('export-completed', {
-          jobId: exportJob._id,
-          filename: exportJob.filename
-        });
+      // Use the proper ExportHandler through the socketHandlers reference
+      if (socketHandlers.exportHandler) {
+        // Emit completion event via the job queue to trigger all handlers
+        // This will use the properly decoupled handlers
+        const completionData = {
+          jobId: exportJob._id.toString(),
+          filename: exportJob.filename,
+          format: exportJob.format
+        };
+        
+        // The export handler will take care of all notifications
+        socketHandlers.exportHandler.emit('job-completed', completionData);
+      } else {
+        // Fallback to older implementation if exportHandler not available
+        socketHandlers.broadcastNotification(
+          `Export completed: ${exportJob.filename}`,
+          'success'
+        );
       }
-      
-      socketHandlers.broadcastNotification(
-        `Export completed: ${exportJob.filename}`,
-        'success'
-      );
     }
     
     res.json({

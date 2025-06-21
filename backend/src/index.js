@@ -14,6 +14,7 @@ import { connectRedis } from './config/redis.js';
 import apiRoutes, { setSocketHandlers } from './routes/api.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import SocketHandlers from './sockets/socketHandlers.js';
+import ExportHandler from './sockets/exportHandler.js';
 import AnalyticsService from './services/analyticsService.js';
 import workerPool from './services/workerPool.js';
 import jobQueue from './services/jobQueue.js';
@@ -32,7 +33,7 @@ const io = new Server(server, {
 
 // Add debug listener for all Socket.IO events
 if (process.env.NODE_ENV !== 'production') {
-  io.engine.on('connection', (socket) => {
+  io.on('connection', (socket) => {
     console.log(`💡 Debug: Socket connection established: ${socket.id}`);
     
     // Listen for all packets
