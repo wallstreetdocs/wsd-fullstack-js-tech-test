@@ -207,7 +207,7 @@ export const useExportStore = defineStore('exports', () => {
     if (!jobId) return
 
     try {
-      socket.emit('pause-export', { jobId })
+      socket.emit('export:pause', { jobId })
     } catch (err) {
       console.error('Error pausing export:', err)
     }
@@ -224,7 +224,7 @@ export const useExportStore = defineStore('exports', () => {
     if (!jobId) return
 
     try {
-      socket.emit('resume-export', { jobId })
+      socket.emit('export:resume', { jobId })
     } catch (err) {
       console.error('Error resuming export:', err)
     }
@@ -271,7 +271,7 @@ export const useExportStore = defineStore('exports', () => {
         }
       } else {
         // Use the socket to retry an existing export
-        socket.emit('retry-export', { jobId })
+        socket.emit('export:retry', { jobId })
       }
     } catch (err) {
       console.error('Error retrying export:', err)
@@ -309,7 +309,7 @@ export const useExportStore = defineStore('exports', () => {
    */
   function initializeSocketListeners() {
     // Export progress updates
-    socket.on('export-progress', (data) => {
+    socket.on('export:progress', (data) => {
       const { jobId, status, progress, processedItems, totalItems } = data
 
       // Update export progress if it's the current export
@@ -339,7 +339,7 @@ export const useExportStore = defineStore('exports', () => {
     })
 
     // Export completed
-    socket.on('export-completed', (data) => {
+    socket.on('export:completed', (data) => {
       const { jobId, filename } = data
 
       // Update if it's the current export
@@ -366,7 +366,7 @@ export const useExportStore = defineStore('exports', () => {
     })
 
     // Export failed
-    socket.on('export-failed', (data) => {
+    socket.on('export:failed', (data) => {
       const { jobId, error } = data
 
       // Update if it's the current export
@@ -383,7 +383,7 @@ export const useExportStore = defineStore('exports', () => {
     })
 
     // Export download ready
-    socket.on('export-download-ready', (data) => {
+    socket.on('export:download-ready', (data) => {
       const { jobId, filename } = data
 
       // Update active exports
@@ -396,14 +396,14 @@ export const useExportStore = defineStore('exports', () => {
     // Check for active exports on reconnection
     socket.on('connect', () => {
       console.log('Export store: Reconnected, checking for active exports...')
-      socket.emit('reconnect-exports')
+      socket.emit('export:reconnect')
       
       // If there was an active export that might have been interrupted
       if (exportProgress.active && exportProgress.jobId) {
         console.log(`Export store: Reconnected with active export job ${exportProgress.jobId}`)
         
         // Request latest status of the specific job
-        socket.emit('get-client-exports')
+        socket.emit('export:get:client-jobs')
         
         // For jobs that were in progress or paused, we need to resume them
         if (['processing', 'paused'].includes(exportProgress.status)) {
@@ -413,10 +413,10 @@ export const useExportStore = defineStore('exports', () => {
           setTimeout(() => {
             // If it was paused, explicitly resume it
             if (exportProgress.status === 'paused') {
-              socket.emit('resume-export', { jobId: exportProgress.jobId })
+              socket.emit('export:resume', { jobId: exportProgress.jobId })
             } else {
               // If it was in progress, re-request its status which will trigger updates
-              socket.emit('get-export-status', { jobId: exportProgress.jobId })
+              socket.emit('export:get:status', { jobId: exportProgress.jobId })
             }
           }, 500)
         }
@@ -427,7 +427,7 @@ export const useExportStore = defineStore('exports', () => {
     // that update the export state when needed. This is more centralized and cleaner.
 
     // Handle active exports on reconnection
-    socket.on('active-exports', (data) => {
+    socket.on('export:active-jobs', (data) => {
       const { jobs } = data
       console.log(`Export store: Received ${jobs.length} active export(s) after reconnection`)
 
@@ -468,12 +468,12 @@ export const useExportStore = defineStore('exports', () => {
       if (exportProgress.active && exportProgress.jobId && 
           !jobs.some(job => job._id === exportProgress.jobId)) {
         // The job might be complete or failed, get its current status
-        socket.emit('get-export-status', { jobId: exportProgress.jobId })
+        socket.emit('export:get:status', { jobId: exportProgress.jobId })
       }
     })
     
     // Add handler for export status check
-    socket.on('export-status', (data) => {
+    socket.on('export:status', (data) => {
       if (data.jobId === exportProgress.jobId) {
         console.log(`Received export status update for job ${data.jobId}: ${data.status}`)
         exportProgress.status = data.status
@@ -574,12 +574,12 @@ export const useExportStore = defineStore('exports', () => {
    * @function cleanup
    */
   function cleanup() {
-    socket.off('export-progress')
-    socket.off('export-completed')
-    socket.off('export-failed')
-    socket.off('export-download-ready')
-    socket.off('active-exports')
-    socket.off('export-status')
+    socket.off('export:progress')
+    socket.off('export:completed')
+    socket.off('export:failed')
+    socket.off('export:download-ready')
+    socket.off('export:active-jobs')
+    socket.off('export:status')
     socket.off('connect')
     socket.off('connect_error')
     socket.off('disconnect')

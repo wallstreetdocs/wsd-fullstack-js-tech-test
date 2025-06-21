@@ -40,7 +40,7 @@ class ExportHandler extends EventEmitter {
    */
   registerHandlers(socket) {
     // Handle export job requests
-    socket.on('start-export', async (data) => {
+    socket.on('export:start', async (data) => {
       try {
         const { format, filters } = data;
         
@@ -52,14 +52,14 @@ class ExportHandler extends EventEmitter {
         });
         
         // Send initial job info
-        socket.emit('export-job-created', {
+        socket.emit('export:created', {
           jobId: exportJob._id,
           status: exportJob.status,
           progress: exportJob.progress
         });
 
         // Manually trigger an immediate progress update to transition from "pending"
-        socket.emit('export-progress', {
+        socket.emit('export:progress', {
           jobId: exportJob._id,
           status: 'processing',
           progress: 0,
@@ -68,40 +68,40 @@ class ExportHandler extends EventEmitter {
         });
       } catch (error) {
         console.error('Error starting export job:', error);
-        socket.emit('export-error', { message: 'Failed to start export job' });
+        socket.emit('export:error', { message: 'Failed to start export job' });
       }
     });
 
     // Handle export job pause request
-    socket.on('pause-export', async (data) => {
+    socket.on('export:pause', async (data) => {
       try {
         const { jobId } = data;
         const job = await ExportService.pauseExportJob(jobId);
         
-        socket.emit('export-job-paused', {
+        socket.emit('export:paused', {
           jobId: job._id,
           status: job.status,
           progress: job.progress
         });
       } catch (error) {
         console.error('Error pausing export job:', error);
-        socket.emit('export-error', { message: 'Failed to pause export job' });
+        socket.emit('export:error', { message: 'Failed to pause export job' });
       }
     });
 
     // Handle export job resume request
-    socket.on('resume-export', async (data) => {
+    socket.on('export:resume', async (data) => {
       try {
         const { jobId } = data;
         
         // Send initial resume notification
-        socket.emit('export-job-resumed', { jobId });
+        socket.emit('export:resumed', { jobId });
         
         // Resume the job
         const job = await ExportService.resumeExportJob(jobId);
         
         // Manually send immediate progress update to show it's processing again
-        socket.emit('export-progress', {
+        socket.emit('export:progress', {
           jobId: job._id,
           status: 'processing',
           progress: job.progress,
@@ -110,17 +110,17 @@ class ExportHandler extends EventEmitter {
         });
       } catch (error) {
         console.error('Error resuming export job:', error);
-        socket.emit('export-error', { message: 'Failed to resume export job' });
+        socket.emit('export:error', { message: 'Failed to resume export job' });
       }
     });
 
     // Handle export job download request
-    socket.on('download-export', async (data) => {
+    socket.on('export:download', async (data) => {
       try {
         const { jobId } = data;
         const downloadData = await ExportService.getExportDownload(jobId);
         
-        socket.emit('export-download-ready', {
+        socket.emit('export:download-ready', {
           jobId,
           data: downloadData.content.toString('base64'),
           filename: downloadData.filename,
@@ -128,37 +128,37 @@ class ExportHandler extends EventEmitter {
         });
       } catch (error) {
         console.error('Error preparing export download:', error);
-        socket.emit('export-error', { message: 'Failed to prepare export download' });
+        socket.emit('export:error', { message: 'Failed to prepare export download' });
       }
     });
 
     // Handle export job history request
-    socket.on('get-export-history', async (data = {}) => {
+    socket.on('export:get:history', async (data = {}) => {
       try {
         const { page = 1, limit = 10 } = data;
         const history = await ExportService.getExportHistory(page, limit);
         
-        socket.emit('export-history', history);
+        socket.emit('export:history', history);
       } catch (error) {
         console.error('Error fetching export history:', error);
-        socket.emit('export-error', { message: 'Failed to fetch export history' });
+        socket.emit('export:error', { message: 'Failed to fetch export history' });
       }
     });
 
     // Handle client export jobs request
-    socket.on('get-client-exports', async () => {
+    socket.on('export:get:client-jobs', async () => {
       try {
         const jobs = await ExportService.getClientExportJobs(socket.id);
         
-        socket.emit('client-exports', { jobs });
+        socket.emit('export:client-jobs', { jobs });
       } catch (error) {
         console.error('Error fetching client exports:', error);
-        socket.emit('export-error', { message: 'Failed to fetch client exports' });
+        socket.emit('export:error', { message: 'Failed to fetch client exports' });
       }
     });
     
     // Handle single export status request
-    socket.on('get-export-status', async (data) => {
+    socket.on('export:get:status', async (data) => {
       try {
         const { jobId } = data;
         
@@ -174,7 +174,7 @@ class ExportHandler extends EventEmitter {
         }
         
         // Send back the job status
-        socket.emit('export-status', {
+        socket.emit('export:status', {
           jobId: job._id.toString(),
           status: job.status,
           progress: job.progress,
@@ -185,7 +185,7 @@ class ExportHandler extends EventEmitter {
         
         // If the job was completed while client was disconnected, also send the completed event
         if (job.status === 'completed') {
-          socket.emit('export-completed', {
+          socket.emit('export:completed', {
             jobId: job._id.toString(),
             filename: job.filename
           });
@@ -209,12 +209,12 @@ class ExportHandler extends EventEmitter {
         }
       } catch (error) {
         console.error('Error getting export status:', error);
-        socket.emit('export-error', { message: 'Failed to get export status' });
+        socket.emit('export:error', { message: 'Failed to get export status' });
       }
     });
     
     // Check for in-progress exports on reconnection
-    socket.on('reconnect-exports', async () => {
+    socket.on('export:reconnect', async () => {
       try {
         // Get all jobs for this client
         const allJobs = await ExportService.getClientExportJobs(socket.id);
@@ -224,7 +224,7 @@ class ExportHandler extends EventEmitter {
           job.status === 'processing' || job.status === 'paused');
         
         // Send active jobs to client
-        socket.emit('active-exports', { jobs: activeJobs });
+        socket.emit('export:active-jobs', { jobs: activeJobs });
         
         // Update client ID for all active jobs to ensure they're associated with the new socket connection
         for (const job of activeJobs) {
@@ -259,7 +259,7 @@ class ExportHandler extends EventEmitter {
         
         if (job && job.clientId) {
           // Emit progress event to the specific client
-          this.io.to(job.clientId).emit('export-progress', {
+          this.io.to(job.clientId).emit('export:progress', {
             jobId: job._id,
             status: job.status,
             progress: job.progress,
@@ -268,7 +268,7 @@ class ExportHandler extends EventEmitter {
           });
           
           // Broadcast to all clients (for testing/debugging)
-          this.io.emit('export-progress', {
+          this.io.emit('export:progress', {
             jobId: job._id,
             status: job.status,
             progress: job.progress,
@@ -310,11 +310,11 @@ class ExportHandler extends EventEmitter {
           };
           
           // Send final progress to all clients
-          this.io.emit('export-progress', finalProgressUpdate);
+          this.io.emit('export:progress', finalProgressUpdate);
           
           // Send to specific client if available
           if (job.clientId) {
-            this.io.to(job.clientId).emit('export-progress', finalProgressUpdate);
+            this.io.to(job.clientId).emit('export:progress', finalProgressUpdate);
           }
           
           // Create the completion message
@@ -326,12 +326,12 @@ class ExportHandler extends EventEmitter {
           console.log(`Broadcasting job-completed event to all clients: ${JSON.stringify(completionMessage)}`);
           
           // Broadcast to all clients
-          this.io.emit('export-completed', completionMessage);
+          this.io.emit('export:completed', completionMessage);
           
           // Also send to specific client if available
           if (job.clientId) {
             console.log(`Sending export-completed to client ${job.clientId}`);
-            this.io.to(job.clientId).emit('export-completed', completionMessage);
+            this.io.to(job.clientId).emit('export:completed', completionMessage);
           }
           
           // Broadcast notification
@@ -358,7 +358,7 @@ class ExportHandler extends EventEmitter {
         
         if (job && job.clientId) {
           // Emit failure event to the specific client
-          this.io.to(job.clientId).emit('export-failed', {
+          this.io.to(job.clientId).emit('export:failed', {
             jobId: job._id,
             error: job.error || error?.message || 'Unknown error'
           });
@@ -384,7 +384,7 @@ class ExportHandler extends EventEmitter {
             
             // Broadcast to specific client if clientId exists
             if (job.clientId) {
-              this.io.to(job.clientId).emit('export-progress', {
+              this.io.to(job.clientId).emit('export:progress', {
                 jobId: job._id,
                 status: 'processing',
                 progress: progressData.progress || 0,
@@ -394,7 +394,7 @@ class ExportHandler extends EventEmitter {
             }
             
             // Broadcast to all clients (for testing/debugging)
-            this.io.emit('export-progress', {
+            this.io.emit('export:progress', {
               jobId: job._id,
               status: 'processing',
               progress: progressData.progress || 0,
@@ -417,7 +417,7 @@ class ExportHandler extends EventEmitter {
             console.log(`Broadcasting ExportService progress: Job ${progressData.jobId}, Progress: ${progressData.progress}%`);
             
             // Broadcast to all clients
-            this.io.emit('export-progress', {
+            this.io.emit('export:progress', {
               jobId: job._id,
               status: 'processing',
               progress: progressData.progress || 0,
@@ -427,7 +427,7 @@ class ExportHandler extends EventEmitter {
             
             // Broadcast to specific client if clientId exists
             if (job.clientId) {
-              this.io.to(job.clientId).emit('export-progress', {
+              this.io.to(job.clientId).emit('export:progress', {
                 jobId: job._id,
                 status: 'processing',
                 progress: progressData.progress || 0,
@@ -459,12 +459,12 @@ class ExportHandler extends EventEmitter {
           console.log(`Broadcasting export-completed with: ${JSON.stringify(clientMessage)}`);
           
           // Send to all clients (more reliable)
-          this.io.emit('export-completed', clientMessage);
+          this.io.emit('export:completed', clientMessage);
           
           // Also send to specific client if clientId exists
           if (job.clientId) {
             console.log(`Sending export-completed to specific client ${job.clientId}`);
-            this.io.to(job.clientId).emit('export-completed', clientMessage);
+            this.io.to(job.clientId).emit('export:completed', clientMessage);
           }
           
           // Broadcast notification
@@ -489,7 +489,7 @@ class ExportHandler extends EventEmitter {
     try {
       // Progress update callback
       const progressCallback = (updatedJob) => {
-        socket.emit('export-progress', {
+        socket.emit('export:progress', {
           jobId: updatedJob._id,
           status: updatedJob.status,
           progress: updatedJob.progress,
@@ -499,7 +499,7 @@ class ExportHandler extends EventEmitter {
         
         // If job completed, send completion notification
         if (updatedJob.status === 'completed') {
-          socket.emit('export-completed', {
+          socket.emit('export:completed', {
             jobId: updatedJob._id,
             filename: updatedJob.filename
           });
@@ -516,7 +516,7 @@ class ExportHandler extends EventEmitter {
         
         // If job failed, send error notification
         if (updatedJob.status === 'failed') {
-          socket.emit('export-failed', {
+          socket.emit('export:failed', {
             jobId: updatedJob._id,
             error: updatedJob.error
           });
@@ -532,7 +532,7 @@ class ExportHandler extends EventEmitter {
       });
     } catch (error) {
       console.error('Error processing export job:', error);
-      socket.emit('export-error', { message: 'Failed to process export job' });
+      socket.emit('export:error', { message: 'Failed to process export job' });
     }
   }
 }
