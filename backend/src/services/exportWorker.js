@@ -92,16 +92,32 @@ async function processExportTask(data) {
   // Generate file content
   const fileContent = generateFileContent(processedTasks, format);
   
-  // Create filename
-  const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${format}`;
+  // Create filename with correct extension based on the requested format
+  // IMPORTANT: The extension MUST match the actual format
+  let actualFormat = format;
+  console.log(`[Worker] Creating filename for format: ${format}`);
+  
+  // Double-check the format to ensure it's valid
+  if (format !== 'json' && format !== 'csv') {
+    console.log(`[Worker] Invalid format provided: ${format}, defaulting to csv`);
+    actualFormat = 'csv';
+  } else {
+    console.log(`[Worker] Using format: ${format}`);
+  }
+  
+  const filename = actualFormat === 'json' 
+    ? `tasks_export_${new Date().toISOString().split('T')[0]}.json`
+    : `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
   
   return {
     totalCount,
     processedCount: processedTasks.length,
     result: fileContent,
     filename,
-    format
+    format: actualFormat // Use the validated format
   };
+  
+  // Important: This ensures we're explicitly sending the correct format back
 }
 
 /**
@@ -165,7 +181,6 @@ async function processTasks(tasks, jobId) {
     const currentProgress = Math.min(i + chunkSize, tasks.length);
     const progressPercent = Math.floor((currentProgress / totalCount) * 100);
     
-    
     // Report progress back to main thread
     parentPort.postMessage({
       type: 'progress',
@@ -175,11 +190,18 @@ async function processTasks(tasks, jobId) {
       totalItems: totalCount
     });
     
-    // Progress reported to main thread via postMessage
-    
-    // In a real implementation, we might need to check if the job was paused or cancelled
-    // For now, we'll just continue processing all tasks
+    // Add small delay to allow for progress updates
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
+  
+  // Always ensure we send a 100% complete progress message
+  parentPort.postMessage({
+    type: 'progress',
+    jobId,
+    progress: 100,
+    processedItems: totalCount,
+    totalItems: totalCount
+  });
   
   return tasks;
 }
@@ -191,9 +213,12 @@ async function processTasks(tasks, jobId) {
  * @returns {string} File content
  */
 function generateFileContent(tasks, format) {
+  console.log(`[Worker] Generating file content in format: ${format}`);
   if (format === 'csv') {
+    console.log(`[Worker] Generating CSV content`);
     return generateCSV(tasks);
   } else if (format === 'json') {
+    console.log(`[Worker] Generating JSON content`);
     return generateJSON(tasks);
   } else {
     throw new Error(`Unsupported export format: ${format}`);
@@ -240,6 +265,7 @@ function generateCSV(tasks) {
  * @returns {string} JSON content
  */
 function generateJSON(tasks) {
+  console.log('[Worker] JSON format requested, generating JSON string');
   return JSON.stringify(tasks, null, 2);
 }
 

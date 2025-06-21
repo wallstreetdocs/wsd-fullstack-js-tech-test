@@ -231,11 +231,10 @@ class ApiClient {
    * @returns {Promise<Blob>} Exported file as a blob for download
    */
   async downloadExport(jobId) {
+    // Directly fetch the file as a blob - the server already knows the format
     return this.request(
       `/exportTasks/${jobId}/download`,
-      {
-        method: 'GET'
-      },
+      { method: 'GET' },
       'blob'
     )
   }

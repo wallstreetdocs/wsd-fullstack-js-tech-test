@@ -348,17 +348,15 @@ router.post('/exportTasks', async (req, res, next) => {
   try {
     const { format, filters } = req.body;
     
-    // Validate format
-    if (!['csv', 'json'].includes(format)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid format. Must be csv or json.'
-      });
-    }
+    // DIRECT VALIDATION - ensure format is either 'json' or 'csv', nothing else
+    const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
+    console.log(`Export request - original format: '${format}', validated format: '${validatedFormat}'`);
     
-    // Create an export job using the export service
+    // No need for includes check since we're explicitly setting to json or csv
+    
+    // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
-      format,
+      format: validatedFormat, // Use the validated lowercase format
       filters
     });
     
@@ -468,16 +466,75 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
     
     console.log(`Export job ${id} has result of size ${exportJob.result.length} bytes`);
     
-    // Set content type based on format
-    const contentType = exportJob.format === 'csv' ? 'text/csv' : 'application/json';
+    // EXPLICIT CONTENT TYPE AND FILENAME LOGIC
+    let contentType, filename;
+    
+    // If format is EXACTLY 'json', set JSON headers
+    if (exportJob.format === 'json') {
+      contentType = 'application/json';
+      filename = `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
+      console.log(`JSON FORMAT: Setting content type: ${contentType}`);
+    } 
+    // Otherwise default to CSV
+    else {
+      contentType = 'text/csv';
+      filename = `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
+      console.log(`CSV FORMAT: Setting content type: ${contentType}`);
+    }
     
     // Set headers for file download
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename=${exportJob.filename}`);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
     
-    console.log(`Serving download for job ${id}, format: ${exportJob.format}, size: ${exportJob.result.length} bytes`);
+    console.log(`FORMAT=${exportJob.format}, CONTENT-TYPE=${contentType}, FILENAME=${filename}`);
     
-    // Send file data as Buffer
+    // For JSON files, we need to make sure we're sending valid JSON
+    if (contentType === 'application/json') {
+      // Convert buffer to string
+      const dataString = exportJob.result.toString('utf-8');
+      
+      // Log first 100 chars for debugging
+      console.log(`JSON data preview: ${dataString.substring(0, 100)}...`);
+      
+      // Try to parse it to make sure it's valid JSON
+      try {
+        JSON.parse(dataString);
+        console.log('Successfully validated JSON data');
+      } catch (e) {
+        console.error('WARNING: Invalid JSON data, will attempt to fix');
+        // If not valid JSON, try to create a valid JSON structure
+        // This is a fallback in case the worker somehow created invalid JSON
+        try {
+          // Try to parse as CSV and convert to JSON
+          const lines = dataString.split('\n');
+          if (lines.length > 0) {
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+            const jsonData = [];
+            
+            for(let i = 1; i < lines.length; i++) {
+              if (lines[i].trim()) {
+                const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
+                const row = {};
+                
+                headers.forEach((header, index) => {
+                  row[header] = values[index] || '';
+                });
+                
+                jsonData.push(row);
+              }
+            }
+            
+            // Create new JSON buffer
+            exportJob.result = Buffer.from(JSON.stringify(jsonData, null, 2), 'utf-8');
+            console.log('Successfully converted CSV to JSON');
+          }
+        } catch (conversionError) {
+          console.error('Error converting to JSON:', conversionError);
+        }
+      }
+    }
+    
+    // Send file data as Buffer with the proper headers already set
     res.send(exportJob.result);
   } catch (error) {
     next(error);

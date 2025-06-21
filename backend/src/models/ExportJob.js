@@ -10,7 +10,13 @@ const exportJobSchema = new mongoose.Schema(
     format: {
       type: String,
       enum: ['csv', 'json'],
-      required: true
+      required: true,
+      set: function(value) {
+        // Always normalize to lowercase and validate
+        const normalizedValue = String(value).toLowerCase();
+        // Only allow 'json' or 'csv', default to 'csv'
+        return normalizedValue === 'json' ? 'json' : 'csv';
+      }
     },
     filters: {
       // Basic filters (original)

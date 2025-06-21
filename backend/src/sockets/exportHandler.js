@@ -225,7 +225,24 @@ class ExportHandler extends EventEmitter {
         if (job) {
           console.log(`Job ${id} completed: ${job.filename}`);
           
-          // Create the client message
+          // First ensure a final progress update showing 100%
+          const finalProgressUpdate = {
+            jobId: job._id.toString(),
+            status: 'completed',
+            progress: 100,
+            processedItems: job.totalItems || 1,
+            totalItems: job.totalItems || 1
+          };
+          
+          // Send final progress to all clients
+          this.io.emit('export-progress', finalProgressUpdate);
+          
+          // Send to specific client if available
+          if (job.clientId) {
+            this.io.to(job.clientId).emit('export-progress', finalProgressUpdate);
+          }
+          
+          // Create the completion message
           const completionMessage = {
             jobId: job._id.toString(),
             filename: job.filename || (data && data.filename)

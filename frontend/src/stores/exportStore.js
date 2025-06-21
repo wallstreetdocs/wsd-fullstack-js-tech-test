@@ -100,35 +100,64 @@ export const useExportStore = defineStore('exports', () => {
    */
   async function downloadExport(jobId) {
     try {
-      // Find the export job to get the filename
-      const job = exportHistory.value.find((j) => j._id === jobId)
-      const filename =
-        job?.filename ||
-        `tasks_export_${new Date().toISOString().split('T')[0]}.${job?.format || 'csv'}`
+      // Get format from the most reliable source
+      const format = getExportFormat(jobId)
+      
+      // Set filename with correct extension
+      const timestamp = new Date().toISOString().split('T')[0]
+      const filename = `tasks_export_${timestamp}.${format}`
 
-      // Use API client to get blob and create download
+      // Download and trigger browser save
       const blob = await apiClient.downloadExport(jobId)
-
-      // Create blob URL
-      const url = window.URL.createObjectURL(blob)
-
-      // Create and trigger download link
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-
-      // Clean up
-      window.setTimeout(() => {
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
-      }, 100)
+      triggerDownload(blob, filename)
     } catch (err) {
       error.value = err.message
       console.error('Error downloading export:', err)
       throw err
     }
+  }
+  
+  /**
+   * Helper to determine export format from available sources
+   * @function getExportFormat
+   * @param {string} jobId - Export job ID
+   * @returns {string} Export format ('json' or 'csv')
+   */
+  function getExportFormat(jobId) {
+    // Check active export progress first (for progress bar downloads)
+    if (exportProgress.jobId === jobId && exportProgress.format) {
+      return exportProgress.format
+    }
+    
+    // Then check history (for audit list downloads)
+    const job = exportHistory.value.find(j => j._id === jobId)
+    if (job && job.format) {
+      return job.format
+    }
+    
+    // Default fallback
+    return 'csv'
+  }
+  
+  /**
+   * Helper to trigger file download in browser
+   * @function triggerDownload
+   * @param {Blob} blob - File data as blob
+   * @param {string} filename - Download filename
+   */
+  function triggerDownload(blob, filename) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    
+    // Clean up
+    window.setTimeout(() => {
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    }, 100)
   }
 
   /**

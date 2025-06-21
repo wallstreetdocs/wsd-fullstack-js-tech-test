@@ -520,21 +520,16 @@ async function exportTasks(format) {
   }
 }
 
-async function handleDownloadExport(jobId) {
-  try {
-    console.log('TaskList download handler for job:', jobId)
-
-    // Use the store method to handle download
-    await exportStore.downloadExport(jobId)
-
-    // Reset active status (but keep details visible for a while)
-    window.setTimeout(() => {
-      exportStore.exportProgress.active = false
-    }, 3000)
-  } catch (error) {
-    console.error('Download failed:', error)
-    window.alert(`Download failed: ${error.message}`)
-  }
+function handleDownloadExport(jobId) {
+  console.log('TaskList download handler for job:', jobId)
+  
+  // Use the direct store method like in the audit page
+  exportStore.downloadExport(jobId)
+  
+  // Reset active status (but keep details visible for a while)
+  window.setTimeout(() => {
+    exportStore.exportProgress.active = false
+  }, 3000)
 }
 
 function handlePauseExport(jobId) {

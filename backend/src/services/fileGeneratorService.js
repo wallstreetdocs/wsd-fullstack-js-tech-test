@@ -65,12 +65,14 @@ class FileGeneratorService {
    * @returns {Object} - Buffer and filename
    */
   generateFile(tasks, format) {
-    if (format === 'csv') {
-      return this.generateCSV(tasks);
-    } else if (format === 'json') {
+    // Explicitly log what we're doing
+    if (format === 'json') {
+      console.log('GENERATING JSON FILE');
+      // Always directly call JSON generator for json format
       return this.generateJSON(tasks);
     } else {
-      throw new Error(`Unsupported export format: ${format}`);
+      console.log('GENERATING CSV FILE');
+      return this.generateCSV(tasks);
     }
   }
 }

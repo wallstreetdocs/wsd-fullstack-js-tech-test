@@ -88,6 +88,7 @@ class ExportService extends EventEmitter {
    */
   async handleExportJobProcessing(jobRequest) {
     const { id: jobId, data, callback } = jobRequest;
+    console.log(`[ExportService] Processing job ${jobId}, format: ${data.format}`);
     
     try {
       // Check if the job exists and update its status
@@ -159,6 +160,7 @@ class ExportService extends EventEmitter {
       }
       
       // Process the export in a worker thread
+      console.log(`[ExportService] Running worker task for format: ${job.format}`);
       const result = await workerPool.runTask('exportTasks', {
         format: job.format,
         filters: job.filters,
@@ -166,7 +168,8 @@ class ExportService extends EventEmitter {
       });
       
       // Update job with the result from worker
-      const { totalCount, result: fileContent, filename } = result;
+      const { totalCount, result: fileContent, filename, format } = result;
+      console.log(`[ExportService] Worker returned format: ${format}, filename: ${filename}`);
       
       // Convert result to buffer if it's a string
       const resultBuffer = typeof fileContent === 'string' 
@@ -180,6 +183,7 @@ class ExportService extends EventEmitter {
       job.processedItems = totalCount;
       job.result = resultBuffer;
       job.filename = filename;
+      console.log(`[ExportService] Saving job with format: ${job.format}, filename: ${filename}`);
       await job.save();
       
       // Cache the result for future identical exports
@@ -235,11 +239,18 @@ class ExportService extends EventEmitter {
    * @returns {Promise<Object>} Created export job
    */
   async createExportJob(params) {
-    const { format, filters, clientId } = params;
+    // Normalize the format to lowercase and validate
+    const format = (params.format || 'csv').toLowerCase();
+    // Ensure format is one of the allowed values
+    const validatedFormat = format === 'json' ? 'json' : 'csv';
     
-    // Create a new export job
+    const { filters, clientId } = params;
+    
+    console.log(`Creating export job with format: ${validatedFormat}`);
+    
+    // Create a new export job with validated format
     const exportJob = new ExportJob({
-      format,
+      format: validatedFormat, // Use the validated format
       filters,
       clientId,
       status: 'pending'
@@ -247,12 +258,12 @@ class ExportService extends EventEmitter {
     
     await exportJob.save();
     
-    // Add job to the queue
+    // Add job to the queue with validated format
     await jobQueue.addJob(
       exportJob._id.toString(),
       'exportTasks',
       {
-        format,
+        format: validatedFormat, // Use the validated format
         filters,
         clientId
       }
@@ -426,9 +437,12 @@ class ExportService extends EventEmitter {
       throw new Error('Export is not completed yet');
     }
     
+    // Use a simple filename generation with correct extension
+    const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
+    
     return {
       content: job.result,
-      filename: job.filename,
+      filename: filename,
       format: job.format
     };
   }
