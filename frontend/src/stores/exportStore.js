@@ -55,17 +55,17 @@ export const useExportStore = defineStore('exports', () => {
   async function exportTasks(format, filters = {}) {
     loading.value = true
     error.value = null
+    
+    // Clear any previous export state completely
+    exportProgress.jobId = null
     exportProgress.active = true
     exportProgress.format = format
     exportProgress.progress = 0
     exportProgress.processedItems = 0
-    // IMPORTANT: Initialize with 0, not 1, to avoid "1/1" display issue
-    exportProgress.totalItems = 0 // Will be properly set when we receive the first progress update
-    console.log(`[ExportStore DEBUG] Initializing export with totalItems=0`)
+    exportProgress.totalItems = 0
     exportProgress.error = null
     exportProgress.status = 'pending'
-    
-    console.log(`ExportStore - Starting export with status: ${exportProgress.status}, active: ${exportProgress.active}`)
+    exportProgress.filename = null
 
     try {
       const queryParams = { ...filters }
@@ -82,15 +82,14 @@ export const useExportStore = defineStore('exports', () => {
       exportProgress.jobId = jobId
       
       // Ensure we set status to 'processing' right away for better UI feedback
-      exportProgress.status = 'processing' // Force to processing instead of response.data.status
-      console.log(`Set exportProgress.status to 'processing' after job creation`)
+      exportProgress.status = 'processing'
 
       // Add to active exports - use actual values
       activeExports[jobId] = {
         id: jobId,
         format,
         status: 'processing',
-        progress: 0, // Real progress is 0% initially
+        progress: 0,
         createdAt: new Date()
       }
       
@@ -387,29 +386,57 @@ export const useExportStore = defineStore('exports', () => {
     // Export progress updates
     socket.on('export:progress', (data) => {
       const { jobId, status, progress, processedItems, totalItems } = data
-      console.log(`Socket 'export:progress' event - jobId: ${jobId}, status: ${status}, progress: ${progress}, processedItems: ${processedItems}, totalItems: ${totalItems}`)
 
+      // If we got a progress event with a different jobId than our current one
+      // and our current job is null or complete, this is a new export
+      if (jobId !== exportProgress.jobId && 
+          (!exportProgress.jobId || exportProgress.status === 'completed')) {
+
+        // Reset state for the new job
+        exportProgress.jobId = jobId;
+        exportProgress.active = true;
+        exportProgress.progress = 0;
+        exportProgress.processedItems = 0;
+        exportProgress.totalItems = 0;
+        exportProgress.error = null;
+        exportProgress.status = 'pending';
+      }
+      
       // Update export progress if it's the current export
       if (jobId === exportProgress.jobId) {
+        
         // If we're getting progress updates, we should clear any previous error
         // messages since the export is working again
         if (status === 'processing' && exportProgress.error) {
           exportProgress.error = null
         }
         
-        console.log(`Updating exportProgress - status: ${status}, progress: ${progress}%, items: ${processedItems}/${totalItems}`)
+        // Always update status
         exportProgress.status = status
-        exportProgress.progress = progress
-        exportProgress.processedItems = processedItems || 0
         
-        // SIMPLIFIED: Simply use whatever totalItems value the server sent us
-        // No special cases or modifications - just use the real value directly
-        exportProgress.totalItems = totalItems;
+        // Always update progress - ensure it's a number between 0-100
+        exportProgress.progress = Math.min(100, Math.max(0, progress || 0))
         
-        // Log current state
-        console.log(`Current exportProgress state - status: ${exportProgress.status}, progress: ${exportProgress.progress}%, items: ${exportProgress.processedItems}/${exportProgress.totalItems}`)
+        // Ensure we have valid values for processedItems and totalItems
+        if (processedItems !== undefined && processedItems !== null) {
+          exportProgress.processedItems = Math.max(0, processedItems)
+        }
         
-        // Let the actual progress be shown - no artificial minimums
+        // Only update totalItems if we have a valid value
+        if (totalItems !== undefined && totalItems !== null && totalItems > 0) {
+          exportProgress.totalItems = totalItems
+        }
+        
+        // If we have processedItems but no totalItems, use processedItems as totalItems
+        if (exportProgress.processedItems > 0 && (!exportProgress.totalItems || exportProgress.totalItems <= 0)) {
+          exportProgress.totalItems = exportProgress.processedItems
+        }
+        
+        // Always keep the export active while we're receiving updates
+        exportProgress.active = true;
+        
+      } else {
+        console.log(`[ExportStore] Ignoring progress update for job ${jobId} - current job is ${exportProgress.jobId}`);
       }
 
       // Update in active exports list
@@ -428,65 +455,51 @@ export const useExportStore = defineStore('exports', () => {
     socket.on('export:completed', (data) => {
       const { jobId, filename, totalItems } = data
 
+      // If we got a completion event with a different jobId than our current one
+      // and our current job is null, this could be a job that started before the page loaded
+      if (jobId !== exportProgress.jobId && !exportProgress.jobId) {
+        exportProgress.jobId = jobId;
+      }
+      
       // Update if it's the current export
       if (jobId === exportProgress.jobId) {
         exportProgress.status = 'completed'
         exportProgress.progress = 100
         exportProgress.filename = filename
         
-        // Log the data received from server
-        console.log(`Export completed event data:`, data);
-        
         // Get the actual total items count from the server if available
-        // This is crucial for showing the correct count
+        let finalCount = 0;
+        
         if (totalItems && totalItems > 0) {
-          console.log(`Setting final item count from server data: ${totalItems}`);
-          exportProgress.totalItems = totalItems;
-          exportProgress.processedItems = totalItems;
+          // Use the count from the server if provided
+          console.log(`[ExportStore] Setting final item count from server data: ${totalItems}`);
+          finalCount = totalItems;
+        } else if (exportProgress.processedItems > 0) {
+          // Use processed items as the final count if we have it
+          console.log(`[ExportStore] Using processedItems (${exportProgress.processedItems}) as final count`);
+          finalCount = exportProgress.processedItems;
+        } else if (exportProgress.totalItems > 0) {
+          // Fall back to the existing total if we have it
+          console.log(`[ExportStore] Using existing totalItems (${exportProgress.totalItems}) as final count`);
+          finalCount = exportProgress.totalItems;
         } else {
-          // If server didn't send a count, use the one we have
-          // Make sure counts are consistent and show actual numbers if we have them
-          if (exportProgress.processedItems > 1) {
-            // We have processed items count, use it for total
-            console.log(`Using processedItems (${exportProgress.processedItems}) as total count`);
-            exportProgress.totalItems = exportProgress.processedItems;
-          } else if (!exportProgress.totalItems || exportProgress.totalItems < 1) {
-            // Get the count from backend via the API if available
-            refreshExportStatus(jobId);
-            
-            // Just use a reasonable default to avoid showing 1/1
-            console.log(`Setting fallback count based on processed items`);
-            exportProgress.totalItems = Math.max(exportProgress.processedItems, 1);
-          }
-          exportProgress.processedItems = exportProgress.totalItems;
+          // Last resort - fetch the actual count from the server
+          console.log(`[ExportStore] No count available, fetching from server`);
+          refreshExportStatus(jobId);
+          finalCount = 1; // Temporary value until refresh completes
         }
+        
+        // Set both values to ensure consistency
+        exportProgress.totalItems = totalItems;
+        exportProgress.processedItems = finalCount;
         
         // Clear any error messages on completion
         exportProgress.error = null
 
-        // Make sure the progress bar stays visible
+        // IMPORTANT: Keep the progress bar visible and active
         exportProgress.active = true
-        
-        // Force a UI update by triggering a progress event
-        setTimeout(() => {
-          exportProgress.progress = 100;
-          // Force another item count update to ensure UI reflects correct count
-          exportProgress.processedItems = exportProgress.totalItems;
-          
-          console.log('Export completed (final check):', {
-            jobId,
-            status: exportProgress.status,
-            progress: exportProgress.progress,
-            items: `${exportProgress.processedItems}/${exportProgress.totalItems}`
-          });
-        }, 100);
-        
-        console.log('Export completed:', {
-          jobId,
-          status: exportProgress.status,
-          progress: exportProgress.progress,
-          items: `${exportProgress.processedItems}/${exportProgress.totalItems}`
-        });
+      } else {
+        console.log(`[ExportStore] Ignoring completion for job ${jobId} - current job is ${exportProgress.jobId}`);
       }
 
       // Update in active exports list
@@ -772,11 +785,6 @@ export const useExportStore = defineStore('exports', () => {
     socket.off('disconnect')
     socket.off('reconnecting')
   }
-  
-  // We've simplified the connection monitoring by using the App.vue global handlers
-  
-  // Auto-initialize socket listeners when store is first used
-  initializeSocketListeners()
 
   /**
    * Cancels an export job

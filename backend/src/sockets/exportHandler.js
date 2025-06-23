@@ -66,7 +66,7 @@ class ExportHandler extends EventEmitter {
         // The count is already saved in the database, we don't need to re-save it
         
         // SIMPLIFIED: Send initial progress update with the actual count
-        console.log(`[ExportHandler] Sending initial progress update for job ${exportJob._id} with ${totalCount} items`);
+        console.log(`[ExportHandler][export:start] Sending initial progress update for job ${exportJob._id} with ${totalCount} items`);
         
         // Create a simple, clear progress update
         const initialProgress = {
@@ -79,7 +79,10 @@ class ExportHandler extends EventEmitter {
         
         // Send to the client and broadcast
         socket.emit('export:progress', initialProgress);
+        console.log(`[ExportHandler][export:start] Initial progress sent to client ${socket.id}: ${JSON.stringify(initialProgress)}`);
+        
         this.io.emit('export:progress', initialProgress);
+        console.log(`[ExportHandler][export:start] Initial progress broadcast to all clients: ${JSON.stringify(initialProgress)}`);
       } catch (error) {
         console.error('Error starting export job:', error);
         socket.emit('export:error', { message: 'Failed to start export job' });
@@ -122,13 +125,17 @@ class ExportHandler extends EventEmitter {
         await job.save();
         
         // Manually send immediate progress update to show it's processing again
-        socket.emit('export:progress', {
+        const resumeProgressUpdate = {
           jobId: job._id,
           status: 'processing',
           progress: job.progress,
           processedItems: job.processedItems || 0,
           totalItems: actualCount
-        });
+        };
+        
+        console.log(`[ExportHandler][export:resume] Sending resume progress update: Job ${job._id}, Progress: ${job.progress}%, Items: ${job.processedItems || 0}/${actualCount}`);
+        socket.emit('export:progress', resumeProgressUpdate);
+        console.log(`[ExportHandler][export:resume] Resume progress sent to client ${socket.id}: ${JSON.stringify(resumeProgressUpdate)}`);
       } catch (error) {
         console.error('Error resuming export job:', error);
         socket.emit('export:error', { message: 'Failed to resume export job' });
@@ -330,13 +337,22 @@ class ExportHandler extends EventEmitter {
             totalItems: totalItems
           };
           
-          console.log(`Sending progress update: ${job._id}, Status: ${job.status}, Progress: ${progress}%, Items: ${processedItems}/${totalItems}`);
+          console.log(`[ExportHandler][job-progress] Sending progress update: ${job._id}, Status: ${job.status}, Progress: ${progress}%, Items: ${processedItems}/${totalItems}`);
           
           // Emit progress event to the specific client
           this.io.to(job.clientId).emit('export:progress', progressData);
+          console.log(`[ExportHandler][job-progress] Progress sent to client ${job.clientId}: ${JSON.stringify(progressData)}`);
           
           // Broadcast to all clients (for testing/debugging)
           this.io.emit('export:progress', progressData);
+          console.log(`[ExportHandler][job-progress] Progress broadcast to all clients: ${JSON.stringify(progressData)}`);
+          
+          // Save progress to the job in the database
+          job.progress = progress;
+          job.processedItems = processedItems;
+          await job.save();
+          
+          console.log(`[ExportHandler][job-progress] Progress saved to database: Job ${job._id}, Progress: ${progress}%, Items: ${processedItems}/${totalItems}`);
           
           // No progress notifications - only notify on completion
         }
@@ -361,7 +377,7 @@ class ExportHandler extends EventEmitter {
           // Use the actual item count from the job
           const itemCount = job.totalItems || job.processedItems || 0;
           
-          console.log(`[ExportHandler] Final progress update for job ${job._id}: ${itemCount}/${itemCount} items`);
+          console.log(`[ExportHandler][job-completed] Final progress update for job ${job._id}: ${itemCount}/${itemCount} items`);
           
           const finalProgressUpdate = {
             jobId: job._id.toString(),
@@ -377,12 +393,16 @@ class ExportHandler extends EventEmitter {
           job.progress = 100;
           await job.save();
           
+          console.log(`[ExportHandler][job-completed] Final progress saved to database: Job ${job._id}, Progress: 100%, Items: ${itemCount}/${itemCount}`);
+          
           // Send final progress to all clients
           this.io.emit('export:progress', finalProgressUpdate);
+          console.log(`[ExportHandler][job-completed] Final progress broadcast to all clients: ${JSON.stringify(finalProgressUpdate)}`);
           
           // Send to specific client if available
           if (job.clientId) {
             this.io.to(job.clientId).emit('export:progress', finalProgressUpdate);
+            console.log(`[ExportHandler][job-completed] Final progress sent to client ${job.clientId}: ${JSON.stringify(finalProgressUpdate)}`);
           }
           
           // Create the completion message with the actual item count
@@ -449,30 +469,36 @@ class ExportHandler extends EventEmitter {
         try {
           const job = await ExportService.getExportJob(progressData.jobId);
           if (job) {
-            console.log(`Broadcasting worker progress update: Job ${progressData.jobId}, Progress: ${progressData.progress}%`);
-            
             // Get the real totalItems from the job, if not available in progress data
             let processedItems = Math.max(progressData.processedItems || 0, 0);
-            let totalItems = progressData.totalItems || job.totalItems || 0;
             
-            // If we still don't have a real count, query for it
-            if (totalItems <= 1 && job.filters) {
-              try {
-                // Get real count from database
-                totalItems = await ExportService.estimateExportSize(job);
-                
-                // Update the job with the correct count
-                job.totalItems = totalItems;
-                await job.save();
-              } catch (countError) {
-                console.error('Error getting estimated count:', countError);
-                // Fallback to a safe value
-                totalItems = Math.max(job.totalItems || 1, 1);
+            // Use totalItems from the progress data if provided, otherwise use the job's value
+            let totalItems = progressData.totalItems;
+            if (!totalItems || totalItems <= 0) {
+              totalItems = job.totalItems;
+              
+              // If we still don't have a real count, query for it
+              if (!totalItems || totalItems <= 0) {
+                try {
+                  // Get real count from database
+                  totalItems = await ExportService.estimateExportSize(job);
+                  
+                  // Update the job with the correct count
+                  job.totalItems = totalItems;
+                  await job.save();
+                  console.log(`[ExportHandler][worker-progress] Updated job ${job._id} with correct count: ${totalItems}`);
+                } catch (countError) {
+                  console.error('Error getting estimated count:', countError);
+                  // Fallback to a safe value that's non-zero
+                  totalItems = Math.max(job.totalItems || 1, 1);
+                }
               }
             }
             
-            // Make sure the count is never zero
+            // Ensure the count is always at least 1 to avoid division by zero
             totalItems = Math.max(totalItems, 1);
+            
+            console.log(`[ExportHandler][worker-progress] Broadcasting worker progress update: Job ${progressData.jobId}, Progress: ${progressData.progress}%, Items: ${processedItems}/${totalItems}`);
             
             // Create progress update with accurate counts
             const progressUpdate = {
@@ -483,13 +509,23 @@ class ExportHandler extends EventEmitter {
               totalItems: totalItems
             };
             
+            // Save progress to the job in the database
+            job.progress = progressData.progress || 0;
+            job.processedItems = processedItems;
+            job.totalItems = totalItems;
+            await job.save();
+            
+            console.log(`[ExportHandler][worker-progress] Progress saved to database: Job ${job._id}, Progress: ${progressData.progress || 0}%, Items: ${processedItems}/${totalItems}`);
+            
             // Broadcast to specific client if clientId exists
             if (job.clientId) {
               this.io.to(job.clientId).emit('export:progress', progressUpdate);
+              console.log(`[ExportHandler][worker-progress] Progress sent to client ${job.clientId}: ${JSON.stringify(progressUpdate)}`);
             }
             
             // Broadcast to all clients (for testing/debugging)
             this.io.emit('export:progress', progressUpdate);
+            console.log(`[ExportHandler][worker-progress] Progress broadcast to all clients: ${JSON.stringify(progressUpdate)}`);
           }
         } catch (error) {
           console.error('Error handling worker progress update:', error);
@@ -503,30 +539,36 @@ class ExportHandler extends EventEmitter {
         try {
           const job = await ExportService.getExportJob(statusData.jobId);
           if (job) {
-            console.log(`Broadcasting worker status update: Job ${statusData.jobId}, Status: ${statusData.status}`);
-            
             // Get the real totalItems from the job, if not available in status data
             let processedItems = Math.max(statusData.processedItems || 0, 0);
-            let totalItems = statusData.totalItems || job.totalItems || 0;
             
-            // If we still don't have a real count, query for it
-            if (totalItems <= 1 && job.filters) {
-              try {
-                // Get real count from database
-                totalItems = await ExportService.estimateExportSize(job);
-                
-                // Update the job with the correct count
-                job.totalItems = totalItems;
-                await job.save();
-              } catch (countError) {
-                console.error('Error getting estimated count:', countError);
-                // Fallback to a safe value
-                totalItems = Math.max(job.totalItems || 1, 1);
+            // Use totalItems from the status data if provided, otherwise use the job's value
+            let totalItems = statusData.totalItems;
+            if (!totalItems || totalItems <= 0) {
+              totalItems = job.totalItems;
+              
+              // If we still don't have a real count, query for it
+              if (!totalItems || totalItems <= 0) {
+                try {
+                  // Get real count from database
+                  totalItems = await ExportService.estimateExportSize(job);
+                  
+                  // Update the job with the correct count
+                  job.totalItems = totalItems;
+                  await job.save();
+                  console.log(`[ExportHandler][worker-status] Updated job ${job._id} with correct count: ${totalItems}`);
+                } catch (countError) {
+                  console.error('Error getting estimated count:', countError);
+                  // Fallback to a safe value that's non-zero
+                  totalItems = Math.max(job.totalItems || 1, 1);
+                }
               }
             }
             
-            // Make sure the count is never zero
+            // Ensure the count is always at least 1 to avoid division by zero
             totalItems = Math.max(totalItems, 1);
+            
+            console.log(`[ExportHandler][worker-status] Broadcasting worker status update: Job ${statusData.jobId}, Status: ${statusData.status}, Progress: ${statusData.progress || job.progress || 0}%, Items: ${processedItems}/${totalItems}`);
             
             // Create status update object with accurate counts
             const statusUpdate = {
@@ -537,22 +579,37 @@ class ExportHandler extends EventEmitter {
               totalItems: totalItems
             };
             
+            // Save status to the job in the database
+            job.status = statusData.status;
+            job.progress = statusData.progress || job.progress || 0;
+            job.processedItems = processedItems;
+            job.totalItems = totalItems;
+            await job.save();
+            
+            console.log(`[ExportHandler][worker-status] Status saved to database: Job ${job._id}, Status: ${statusData.status}, Progress: ${statusData.progress || job.progress || 0}%, Items: ${processedItems}/${totalItems}`);
+            
             // Broadcast to specific client if clientId exists
             if (job.clientId) {
               this.io.to(job.clientId).emit('export:progress', statusUpdate);
+              console.log(`[ExportHandler][worker-status] Status sent to client ${job.clientId}: ${JSON.stringify(statusUpdate)}`);
               
               // For paused status, also emit a specific paused event
               if (statusData.status === 'paused') {
-                this.io.to(job.clientId).emit('export:paused', {
+                const pausedUpdate = {
                   jobId: job._id,
                   status: 'paused',
-                  progress: statusUpdate.progress
-                });
+                  progress: statusUpdate.progress,
+                  processedItems: processedItems,
+                  totalItems: totalItems
+                };
+                this.io.to(job.clientId).emit('export:paused', pausedUpdate);
+                console.log(`[ExportHandler][worker-status] Paused status sent to client ${job.clientId}: ${JSON.stringify(pausedUpdate)}`);
               }
             }
             
             // Broadcast to all clients (for testing/debugging)
             this.io.emit('export:progress', statusUpdate);
+            console.log(`[ExportHandler][worker-status] Status broadcast to all clients: ${JSON.stringify(statusUpdate)}`);
           }
         } catch (error) {
           console.error('Error handling worker status update:', error);
@@ -566,30 +623,36 @@ class ExportHandler extends EventEmitter {
         try {
           const job = await ExportService.getExportJob(progressData.jobId);
           if (job) {
-            console.log(`Broadcasting ExportService progress: Job ${progressData.jobId}, Progress: ${progressData.progress}%`);
-            
             // Get the real totalItems from the job, if not available in progress data
             let processedItems = Math.max(progressData.processedItems || 0, 0);
-            let totalItems = progressData.totalItems || job.totalItems || 0;
             
-            // If we still don't have a real count, query for it
-            if (totalItems <= 1 && job.filters) {
-              try {
-                // Get real count from database
-                totalItems = await ExportService.estimateExportSize(job);
-                
-                // Update the job with the correct count
-                job.totalItems = totalItems;
-                await job.save();
-              } catch (countError) {
-                console.error('Error getting estimated count:', countError);
-                // Fallback to a safe value
-                totalItems = Math.max(job.totalItems || 1, 1);
+            // Use totalItems from the progress data if provided, otherwise use the job's value
+            let totalItems = progressData.totalItems;
+            if (!totalItems || totalItems <= 0) {
+              totalItems = job.totalItems;
+              
+              // If we still don't have a real count, query for it
+              if (!totalItems || totalItems <= 0) {
+                try {
+                  // Get real count from database
+                  totalItems = await ExportService.estimateExportSize(job);
+                  
+                  // Update the job with the correct count
+                  job.totalItems = totalItems;
+                  await job.save();
+                  console.log(`[ExportHandler][export-service-progress] Updated job ${job._id} with correct count: ${totalItems}`);
+                } catch (countError) {
+                  console.error('Error getting estimated count:', countError);
+                  // Fallback to a safe value that's non-zero
+                  totalItems = Math.max(job.totalItems || 1, 1);
+                }
               }
             }
             
-            // Make sure the count is never zero
+            // Ensure the count is always at least 1 to avoid division by zero
             totalItems = Math.max(totalItems, 1);
+            
+            console.log(`[ExportHandler][export-service-progress] Broadcasting ExportService progress: Job ${progressData.jobId}, Progress: ${progressData.progress}%, Items: ${processedItems}/${totalItems}`);
             
             // Create progress update with accurate counts
             const progressUpdate = {
@@ -600,12 +663,22 @@ class ExportHandler extends EventEmitter {
               totalItems: totalItems
             };
             
+            // Save progress to the job in the database
+            job.progress = progressData.progress || 0;
+            job.processedItems = processedItems;
+            job.totalItems = totalItems;
+            await job.save();
+            
+            console.log(`[ExportHandler][export-service-progress] Progress saved to database: Job ${job._id}, Progress: ${progressData.progress || 0}%, Items: ${processedItems}/${totalItems}`);
+            
             // Broadcast to all clients
             this.io.emit('export:progress', progressUpdate);
+            console.log(`[ExportHandler][export-service-progress] Progress broadcast to all clients: ${JSON.stringify(progressUpdate)}`);
             
             // Broadcast to specific client if clientId exists
             if (job.clientId) {
               this.io.to(job.clientId).emit('export:progress', progressUpdate);
+              console.log(`[ExportHandler][export-service-progress] Progress sent to client ${job.clientId}: ${JSON.stringify(progressUpdate)}`);
             }
           }
         } catch (error) {
@@ -662,13 +735,17 @@ class ExportHandler extends EventEmitter {
     try {
       // Progress update callback
       const progressCallback = (updatedJob) => {
-        socket.emit('export:progress', {
+        const progressUpdate = {
           jobId: updatedJob._id,
           status: updatedJob.status,
           progress: updatedJob.progress,
-          processedItems: updatedJob.processedItems,
-          totalItems: updatedJob.totalItems
-        });
+          processedItems: updatedJob.processedItems || 0,
+          totalItems: updatedJob.totalItems || 0
+        };
+        
+        console.log(`[ExportHandler][processExportJob] Sending progress update: Job ${updatedJob._id}, Status: ${updatedJob.status}, Progress: ${updatedJob.progress}%, Items: ${updatedJob.processedItems || 0}/${updatedJob.totalItems || 0}`);
+        socket.emit('export:progress', progressUpdate);
+        console.log(`[ExportHandler][processExportJob] Progress sent to client ${socket.id}: ${JSON.stringify(progressUpdate)}`);
         
         // If job completed, send completion notification
         if (updatedJob.status === 'completed') {

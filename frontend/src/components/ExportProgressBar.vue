@@ -52,12 +52,13 @@
               title="Resume export"
             ></v-btn>
             <v-btn
+              v-if="showCancelButton"
               size="small"
               color="error"
               variant="text"
               icon="mdi-cancel"
               @click="handleCancel(getJobId())"
-              title="Cancel export (Always visible for testing)"
+              title="Cancel export"
             ></v-btn>
           </template>
           <v-btn
@@ -92,6 +93,8 @@
               :color="progressBarColor"
               height="10"
               striped
+              :active="currentStatus === 'processing'"
+              :indeterminate="currentStatus === 'processing' && displayProgress < 5"
             ></v-progress-linear>
           </div>
           <div class="text-caption">{{ displayProgress }}%</div>
@@ -99,7 +102,6 @@
 
         <div class="d-flex justify-space-between mt-1">
           <div class="text-caption">
-            <!-- SIMPLIFIED: Always show the actual count - much simpler -->
             {{ getProcessedItems() }} / {{ getTotalItems() }} items
           </div>
           <div v-if="getError() && currentStatus !== 'completed'" class="text-caption error-message">
@@ -255,7 +257,6 @@ const showCancelButton = computed(() => {
   // Always show cancel button when export is active and not completed/failed/cancelled
   const validStatuses = ['processing', 'paused'];
   const shouldShow = validStatuses.includes(currentStatus.value);
-  console.log(`showCancelButton: ${shouldShow}, status: ${currentStatus.value}, includes: ${validStatuses.includes(currentStatus.value)}`);
   return shouldShow;
 })
 
@@ -281,12 +282,14 @@ function getJobId() {
 
 function getTotalItems() {
   // Return the actual value without modification
-  return exportProgress.value.totalItems || 0;
+  const total = exportProgress.value.totalItems;
+  return total !== undefined && total !== null ? total : 0;
 }
 
 function getProcessedItems() {
   // Return the actual processed items
-  return exportProgress.value.processedItems || 0;
+  const processed = exportProgress.value.processedItems;
+  return processed !== undefined && processed !== null ? processed : 0;
 }
 
 function getError() {

@@ -349,9 +349,9 @@ router.post('/exportTasks', async (req, res, next) => {
   try {
     const { format, filters, streamDirectly } = req.body;
     
-    // DIRECT VALIDATION - ensure format is either 'json' or 'csv', nothing else
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
-    console.log(`Export request - original format: '${format}', validated format: '${validatedFormat}'`);
+
+    console.log(`Export request - original format: '${format}''`);
     
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
@@ -367,8 +367,6 @@ router.post('/exportTasks', async (req, res, next) => {
     
     // For small exports that can be processed directly
     if (exportJob.processingType === 'direct') {
-      console.log(`Direct processing for small export job ${exportJob._id}`);
-      
       // If client requested direct streaming, do it now
       if (streamDirectly === true) {
         console.log(`Streaming export directly to client for job ${exportJob._id}`);
@@ -641,82 +639,6 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
     }
   } catch (error) {
     console.error('Error in download endpoint:', error);
-    next(error);
-  }
-});
-
-/**
- * POST /exportTasks/:id/complete - Force complete an export job (for debugging)
- * @name forceCompleteExport
- * @function
- * @param {string} req.params.id - Export job ID
- * @returns {Object} Updated export job status
- */
-router.post('/exportTasks/:id/complete', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    console.log(`DEBUG: Force completing export job ${id}`);
-    
-    const exportJob = await ExportJob.findById(id);
-    
-    if (!exportJob) {
-      return res.status(404).json({
-        success: false,
-        message: 'Export job not found'
-      });
-    }
-    
-    // Force job to completed state
-    exportJob.status = 'completed';
-    exportJob.progress = 100;
-    exportJob.processedItems = exportJob.totalItems || 10;
-    
-    // If no result exists, create a dummy one
-    if (!exportJob.result) {
-      const dummyContent = exportJob.format === 'csv' 
-        ? 'ID,Title,Description,Status,Priority,Created At\n1,Test,Test description,completed,high,2023-01-01'
-        : JSON.stringify([{ id: 1, title: 'Test', description: 'Test description' }]);
-        
-      exportJob.result = Buffer.from(dummyContent, 'utf-8');
-      exportJob.filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${exportJob.format}`;
-    }
-    
-    await exportJob.save();
-    
-    // Emit events to notify clients
-    if (socketHandlers) {
-      // Use the proper ExportHandler through the socketHandlers reference
-      if (socketHandlers.exportHandler) {
-        // Emit completion event via the job queue to trigger all handlers
-        // This will use the properly decoupled handlers
-        const completionData = {
-          jobId: exportJob._id.toString(),
-          filename: exportJob.filename,
-          format: exportJob.format
-        };
-        
-        // The export handler will take care of all notifications
-        socketHandlers.exportHandler.emit('job-completed', completionData);
-      } else {
-        // Fallback to older implementation if exportHandler not available
-        socketHandlers.broadcastNotification(
-          `Export completed: ${exportJob.filename}`,
-          'success'
-        );
-      }
-    }
-    
-    res.json({
-      success: true,
-      data: {
-        id: exportJob._id,
-        status: exportJob.status,
-        progress: exportJob.progress,
-        filename: exportJob.filename
-      },
-      message: 'Export job force-completed successfully'
-    });
-  } catch (error) {
     next(error);
   }
 });

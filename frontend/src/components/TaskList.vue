@@ -114,7 +114,7 @@
                   clearable
                   hide-details
                   prepend-inner-icon="mdi-magnify"
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-text-field>
               </v-col>
 
@@ -125,7 +125,7 @@
                   label="Estimated Time"
                   clearable
                   hide-details
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-select>
               </v-col>
             </v-row>
@@ -138,7 +138,7 @@
                   type="date"
                   clearable
                   hide-details
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-text-field>
               </v-col>
 
@@ -149,7 +149,7 @@
                   type="date"
                   clearable
                   hide-details
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-text-field>
               </v-col>
             </v-row>
@@ -162,7 +162,7 @@
                   type="date"
                   clearable
                   hide-details
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-text-field>
               </v-col>
 
@@ -173,7 +173,7 @@
                   type="date"
                   clearable
                   hide-details
-                  @update:model-value="applyAdvancedFilters"
+                  @update:model-value="updateFilters"
                 ></v-text-field>
               </v-col>
             </v-row>
@@ -373,11 +373,6 @@ function updateFilters() {
 
   // Update the store with transformed filters
   taskStore.updateFilters(transformedFilters)
-}
-
-// Also called for advanced filters
-function applyAdvancedFilters() {
-  updateFilters()
 }
 
 // Transform filters into API-compatible format

@@ -25,9 +25,10 @@ const exportConfig = {
   /**
    * Maximum number of tasks that can be processed in a direct export
    * Used to determine whether to use direct or background processing
+   * Lower value means more exports go through the worker process for better progress reporting
    * @type {number}
    */
-  directExportTaskLimit: 500,
+  directExportTaskLimit: 50, // Reduced to ensure more exports go through the background worker
 
   /**
    * TTL for small export cache (in seconds)

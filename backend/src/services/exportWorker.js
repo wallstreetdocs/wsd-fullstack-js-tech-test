@@ -181,17 +181,35 @@ async function processExportTask(data) {
   let processedTasks = [];
   let processed = 0;
   
+  // Before processing tasks, send the initial progress update
+  console.log(`[Worker] Starting export of ${totalCount} tasks for job ${jobId}`);
+  parentPort.postMessage({
+    type: 'progress',
+    jobId,
+    status: 'processing',
+    progress: 0,
+    processedItems: 0,
+    totalItems: totalCount
+  });
+  
+  // For small exports with few items, create artificial progress points to make it visible
+  const progressPoints = Math.max(10, totalCount);
+  const reportEveryNth = Math.max(1, Math.floor(totalCount / progressPoints));
+  
   // Process each task individually for maximum progress granularity
   for (let task = await cursor.next(); task != null; task = await cursor.next()) {
     // Add task to processed list
     processedTasks.push(task);
     processed++;
     
-    // Calculate real progress percentage
-    const progress = Math.floor((processed / totalCount) * 100);
+    // Calculate real progress percentage - ensure it's at least 1% after processing starts
+    const progress = processed === 1 ? 1 : Math.floor((processed / totalCount) * 100);
     
-    // Send progress update every few items
-    if (processed % 5 === 0 || processed === totalCount) {
+    // Send progress update for EVERY item or at specific intervals for large exports
+    const shouldReport = processed === 1 || processed === totalCount || 
+                        processed % reportEveryNth === 0 || progress % 10 === 0;
+    
+    if (shouldReport) {
       console.log(`[Worker] Export progress: ${progress}% (${processed}/${totalCount})`);
       parentPort.postMessage({
         type: 'progress',
@@ -201,6 +219,10 @@ async function processExportTask(data) {
         processedItems: processed,
         totalItems: totalCount
       });
+      
+      // Add a small delay to make progress updates more visible in the UI
+      // This is only for development/demo purposes to simulate longer processing time
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     // Check for pause or cancellation
