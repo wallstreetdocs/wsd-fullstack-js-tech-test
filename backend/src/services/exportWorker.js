@@ -29,17 +29,38 @@ mongoose.connect(MONGODB_URI)
   .then(() => {})
   .catch(err => {});
 
+// State for tracking job status
+const jobStates = new Map();
+
 // Listen for messages from the main thread
 parentPort.on('message', async (message) => {
   try {
-    const { taskId, type, data } = message;
+    const { taskId, type, data, control } = message;
+    
+    // Handle control messages
+    if (control) {
+      handleControlMessage(control);
+      return;
+    }
     
     // Process the received task
-    
     let result;
     
     if (type === 'exportTasks') {
+      // Initialize job state for tracking pause status
+      if (data.jobId) {
+        jobStates.set(data.jobId, { 
+          paused: false,
+          cancelled: false 
+        });
+      }
+      
       result = await processExportTask(data);
+      
+      // Clean up job state after completion
+      if (data.jobId) {
+        jobStates.delete(data.jobId);
+      }
     } else {
       throw new Error(`Unknown task type: ${type}`);
     }
@@ -51,7 +72,6 @@ parentPort.on('message', async (message) => {
       result
     });
   } catch (error) {
-    
     // Send error back to main thread
     parentPort.postMessage({
       taskId: message.taskId,
@@ -63,6 +83,68 @@ parentPort.on('message', async (message) => {
     });
   }
 });
+
+/**
+ * Handle control messages for job control (pause, resume, cancel)
+ * @param {Object} control - Control message data
+ */
+function handleControlMessage(control) {
+  const { action, jobId } = control;
+  
+  if (!jobId || !jobStates.has(jobId)) {
+    console.log(`[Worker] Control message for unknown job: ${jobId}`);
+    return;
+  }
+  
+  const jobState = jobStates.get(jobId);
+  
+  switch (action) {
+    case 'pause':
+      console.log(`[Worker] Pausing job ${jobId}`);
+      jobState.paused = true;
+      jobStates.set(jobId, jobState);
+      
+      // Acknowledge the pause command
+      parentPort.postMessage({
+        type: 'control-ack',
+        jobId,
+        action: 'pause',
+        status: 'acknowledged'
+      });
+      break;
+      
+    case 'resume':
+      console.log(`[Worker] Resuming job ${jobId}`);
+      jobState.paused = false;
+      jobStates.set(jobId, jobState);
+      
+      // Acknowledge the resume command
+      parentPort.postMessage({
+        type: 'control-ack',
+        jobId,
+        action: 'resume',
+        status: 'acknowledged'
+      });
+      break;
+      
+    case 'cancel':
+      console.log(`[Worker] Cancelling job ${jobId}`);
+      jobState.cancelled = true;
+      jobStates.set(jobId, jobState);
+      
+      // Acknowledge the cancel command
+      parentPort.postMessage({
+        type: 'control-ack',
+        jobId,
+        action: 'cancel',
+        status: 'acknowledged'
+      });
+      break;
+      
+    default:
+      console.log(`[Worker] Unknown control action: ${action}`);
+  }
+}
 
 /**
  * Process an export task
@@ -81,40 +163,89 @@ async function processExportTask(data) {
   
   // Get total count for progress tracking
   const totalCount = await Task.countDocuments(query);
+  console.log(`[Worker] Found ${totalCount} tasks for export job ${jobId}`);
   
-  // Get all tasks matching the query
-  const tasks = await Task.find(query).sort(sort).exec();
+  // Send initial progress update with correct total
+  parentPort.postMessage({
+    type: 'progress',
+    jobId,
+    status: 'processing',
+    progress: 0,
+    processedItems: 0,
+    totalItems: totalCount
+  });
   
+  // Use cursor for memory-efficient processing with real-time updates
+  const cursor = Task.find(query).sort(sort).cursor();
   
-  // Process tasks and track progress
-  const processedTasks = await processTasks(tasks, jobId);
+  let processedTasks = [];
+  let processed = 0;
   
-  // Generate file content
+  // Process each task individually for maximum progress granularity
+  for (let task = await cursor.next(); task != null; task = await cursor.next()) {
+    // Add task to processed list
+    processedTasks.push(task);
+    processed++;
+    
+    // Calculate real progress percentage
+    const progress = Math.floor((processed / totalCount) * 100);
+    
+    // Send progress update every few items
+    if (processed % 5 === 0 || processed === totalCount) {
+      console.log(`[Worker] Export progress: ${progress}% (${processed}/${totalCount})`);
+      parentPort.postMessage({
+        type: 'progress',
+        jobId,
+        status: 'processing',
+        progress,
+        processedItems: processed,
+        totalItems: totalCount
+      });
+    }
+    
+    // Check for pause or cancellation
+    if (jobId && jobStates.has(jobId)) {
+      const jobState = jobStates.get(jobId);
+      
+      // If cancelled, stop processing
+      if (jobState.cancelled) {
+        throw new Error('Job cancelled by user');
+      }
+      
+      // If paused, wait until resumed
+      while (jobState.paused) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Check for cancellation during pause
+        if (jobState.cancelled) {
+          throw new Error('Job cancelled while paused');
+        }
+      }
+    }
+  }
+  
+  // Generate file content (this might take time for large exports)
+  console.log(`[Worker] Generating ${format} file for ${processed} tasks`);
   const fileContent = generateFileContent(processedTasks, format);
   
-  // Create filename with correct extension based on the requested format
-  // IMPORTANT: The extension MUST match the actual format
+  // Validate format and create filename
   let actualFormat = format;
-  console.log(`[Worker] Creating filename for format: ${format}`);
-  
-  // Double-check the format to ensure it's valid
   if (format !== 'json' && format !== 'csv') {
     console.log(`[Worker] Invalid format provided: ${format}, defaulting to csv`);
     actualFormat = 'csv';
-  } else {
-    console.log(`[Worker] Using format: ${format}`);
   }
   
-  const filename = actualFormat === 'json' 
-    ? `tasks_export_${new Date().toISOString().split('T')[0]}.json`
-    : `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
+  const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${actualFormat}`;
+  
+  // Send final progress update
+  console.log(`[Worker] Export complete: ${filename}`);
   
   return {
     totalCount,
     processedCount: processedTasks.length,
     result: fileContent,
     filename,
-    format: actualFormat // Use the validated format
+    format: actualFormat
   };
   
   // Important: This ensures we're explicitly sending the correct format back
@@ -164,47 +295,8 @@ function buildQueryFromFilters(filters) {
   return query;
 }
 
-/**
- * Process tasks and report progress
- * @param {Array} tasks - Tasks to process
- * @param {string} jobId - Export job ID
- * @returns {Array} Processed tasks
- */
-async function processTasks(tasks, jobId) {
-  const totalCount = tasks.length;
-  // Make smaller chunks to update progress more frequently - every 5% or at least 1 item
-  const chunkSize = Math.max(Math.floor(tasks.length / 20), 1);
-  
-  // Process tasks in chunks with progress tracking
-  for (let i = 0; i < tasks.length; i += chunkSize) {
-    // Calculate progress
-    const currentProgress = Math.min(i + chunkSize, tasks.length);
-    const progressPercent = Math.floor((currentProgress / totalCount) * 100);
-    
-    // Report progress back to main thread
-    parentPort.postMessage({
-      type: 'progress',
-      jobId,
-      progress: progressPercent,
-      processedItems: currentProgress,
-      totalItems: totalCount
-    });
-    
-    // Add small delay to allow for progress updates
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  
-  // Always ensure we send a 100% complete progress message
-  parentPort.postMessage({
-    type: 'progress',
-    jobId,
-    progress: 100,
-    processedItems: totalCount,
-    totalItems: totalCount
-  });
-  
-  return tasks;
-}
+// Note: processTasks function removed since we now handle processing 
+// directly in processExportTask for more granular updates
 
 /**
  * Generate file content in the specified format

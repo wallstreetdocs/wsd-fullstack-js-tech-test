@@ -248,8 +248,18 @@ class JobQueue extends EventEmitter {
         ...data
       });
       
-      // Emit progress event
-      this.emit('job-progress', { id: jobId, progress, data });
+      // Emit progress event with additional logging
+      console.log(`[JobQueue] Emitting progress event for job ${jobId}: ${progress}%`);
+      
+      // Make sure we include status in the event
+      const progressEvent = { 
+        id: jobId, 
+        progress, 
+        status: 'processing',
+        ...data 
+      };
+      
+      this.emit('job-progress', progressEvent);
     } catch (error) {
       // Error updating progress, non-critical
     }

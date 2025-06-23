@@ -39,6 +39,10 @@
             v-if="['processing', 'paused'].includes(item.status)"
             :progress="item.progress"
             :status="item.status"
+            :jobId="item._id"
+            :simple="true"
+            @pause="pauseExport"
+            @resume="resumeExport"
           />
           <span v-else>{{ item.progress }}%</span>
         </template>

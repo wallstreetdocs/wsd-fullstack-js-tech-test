@@ -18,6 +18,7 @@ import ExportHandler from './sockets/exportHandler.js';
 import AnalyticsService from './services/analyticsService.js';
 import workerPool from './services/workerPool.js';
 import jobQueue from './services/jobQueue.js';
+import tempFileCleanupService from './services/tempFileCleanupService.js';
 
 dotenv.config();
 
@@ -91,6 +92,10 @@ const gracefulShutdown = async (signal) => {
     // Pause job queue
     console.log('Pausing job queue...');
     await jobQueue.pause();
+    
+    // Shutdown temp file cleanup service
+    console.log('Shutting down temp file cleanup service...');
+    tempFileCleanupService.shutdown();
     
     // Close server
     server.close(() => {
@@ -172,6 +177,23 @@ const startServer = async () => {
         console.error('Error cleaning up jobs:', error);
       }
     }, 3600000);
+
+    // Initialize temp file cleanup service (runs every 24 hours)
+    console.log('🧹 Initializing temp file cleanup service...');
+    tempFileCleanupService.initialize();
+    
+    // Also clean up temp files periodically (every 12 hours)
+    setInterval(async () => {
+      try {
+        const cleanedCount = await tempFileCleanupService.cleanupTempFiles();
+        const cacheCleanedCount = await tempFileCleanupService.cleanupExportCache();
+        if (cleanedCount > 0 || cacheCleanedCount > 0) {
+          console.log(`Cleaned up ${cleanedCount} temp files and ${cacheCleanedCount} cache entries`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up temp files:', error);
+      }
+    }, 43200000); // 12 hours
 
   } catch (error) {
     console.error('❌ Failed to start server:', error);

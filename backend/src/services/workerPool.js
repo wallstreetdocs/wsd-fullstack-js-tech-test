@@ -70,6 +70,11 @@ class WorkerPool extends EventEmitter {
       worker.on('message', (message) => {
         // Special handling for progress updates
         if (message && message.type === 'progress') {
+          console.log(`[WorkerPool] Received progress update from worker ${workerId}:`, 
+            `jobId=${message.jobId}, progress=${message.progress}%, items=${message.processedItems}/${message.totalItems}`);
+          
+          // No artificial modifications - pass real values as-is
+          
           this.emit('task-progress', message);
           return;
         }
@@ -114,6 +119,18 @@ class WorkerPool extends EventEmitter {
     // Handle progress updates
     if (message.type === 'progress') {
       this.emit('task-progress', message);
+      return;
+    }
+    
+    // Handle status updates
+    if (message.type === 'status-update') {
+      this.emit('task-status', message);
+      return;
+    }
+    
+    // Handle control message acknowledgements
+    if (message.type === 'control-ack') {
+      this.emit('control-ack', message);
       return;
     }
     
@@ -399,6 +416,85 @@ class WorkerPool extends EventEmitter {
       queueLength: this.queue.length,
       isShuttingDown: this.isShuttingDown
     };
+  }
+  
+  /**
+   * Send control message to worker that is processing a specific task
+   * @param {string} jobId - ID of the job being processed
+   * @param {string} action - Control action ('pause', 'resume', 'cancel')
+   * @returns {Promise<boolean>} Success status of the control operation
+   */
+  async controlWorker(jobId, action) {
+    if (!this.initialized || this.isShuttingDown) {
+      return false;
+    }
+    
+    console.log(`[WorkerPool] Attempting to ${action} job ${jobId}`);
+    
+    // Find the worker processing this task by checking all active workers
+    let targetWorker = null;
+    let targetTaskId = null;
+    
+    for (const [worker, taskId] of this.activeWorkers.entries()) {
+      // Check if this worker's task matches the job ID
+      // For export tasks, the task data would include the job ID
+      // We need to find the task in the queue to check
+      const taskIndex = this.queue.findIndex(task => task.id === taskId);
+      if (taskIndex !== -1) {
+        const task = this.queue[taskIndex];
+        
+        // For export tasks, job ID is in the data
+        if (task.data && task.data.jobId === jobId) {
+          targetWorker = worker;
+          targetTaskId = taskId;
+          break;
+        }
+      }
+    }
+    
+    if (!targetWorker) {
+      console.log(`[WorkerPool] No worker found processing job ${jobId}`);
+      return false;
+    }
+    
+    // Send the control message to the worker
+    try {
+      console.log(`[WorkerPool] Sending ${action} command to worker for job ${jobId}`);
+      
+      // Create a promise that will resolve when the worker acknowledges
+      const ackPromise = new Promise((resolve, reject) => {
+        // Set a timeout to avoid hanging indefinitely
+        const timeout = setTimeout(() => {
+          this.removeListener('control-ack', handleAck);
+          reject(new Error('Control command acknowledgement timeout'));
+        }, 5000);
+        
+        // Listen for acknowledgement
+        const handleAck = (ack) => {
+          if (ack.jobId === jobId && ack.action === action) {
+            clearTimeout(timeout);
+            this.removeListener('control-ack', handleAck);
+            resolve(true);
+          }
+        };
+        
+        this.on('control-ack', handleAck);
+      });
+      
+      // Send the control message
+      targetWorker.postMessage({
+        control: {
+          action,
+          jobId
+        }
+      });
+      
+      // Wait for acknowledgement
+      return await ackPromise;
+    } catch (error) {
+      console.error(`[WorkerPool] Error sending control message to worker:`, error);
+      return false;
+    }
   }
 
   /**

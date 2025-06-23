@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
+import { categorizeError, ErrorCategory } from '../utils/errorHandler.js'
 
 /**
  * Pinia store for export management with real-time progress updates
@@ -37,6 +38,9 @@ export const useExportStore = defineStore('exports', () => {
     processedItems: 0,
     totalItems: 0,
     error: null,
+    errorCategory: null,
+    errorRecoverable: false,
+    recoverySuggestion: null,
     filename: null
   })
 
@@ -54,8 +58,14 @@ export const useExportStore = defineStore('exports', () => {
     exportProgress.active = true
     exportProgress.format = format
     exportProgress.progress = 0
+    exportProgress.processedItems = 0
+    // IMPORTANT: Initialize with 0, not 1, to avoid "1/1" display issue
+    exportProgress.totalItems = 0 // Will be properly set when we receive the first progress update
+    console.log(`[ExportStore DEBUG] Initializing export with totalItems=0`)
     exportProgress.error = null
     exportProgress.status = 'pending'
+    
+    console.log(`ExportStore - Starting export with status: ${exportProgress.status}, active: ${exportProgress.active}`)
 
     try {
       const queryParams = { ...filters }
@@ -70,37 +80,86 @@ export const useExportStore = defineStore('exports', () => {
       // Store job ID for tracking
       const jobId = response.data.jobId
       exportProgress.jobId = jobId
-      exportProgress.status = response.data.status
+      
+      // Ensure we set status to 'processing' right away for better UI feedback
+      exportProgress.status = 'processing' // Force to processing instead of response.data.status
+      console.log(`Set exportProgress.status to 'processing' after job creation`)
 
-      // Add to active exports
+      // Add to active exports - use actual values
       activeExports[jobId] = {
         id: jobId,
         format,
-        status: response.data.status,
-        progress: 0,
+        status: 'processing',
+        progress: 0, // Real progress is 0% initially
         createdAt: new Date()
       }
+      
+      // Set up progress monitoring to detect stuck exports
+      let lastProgress = 0;
+      let lastUpdate = Date.now();
+      let stuckCounter = 0;
+      
+      // Create a progress monitor interval
+      const progressMonitor = setInterval(() => {
+        if (!exportProgress.active || exportProgress.jobId !== jobId) {
+          // Export is no longer active or changed, clear interval
+          clearInterval(progressMonitor);
+          return;
+        }
+        
+        const now = Date.now();
+        const timeSinceUpdate = now - lastUpdate;
+        
+        // If progress hasn't changed for more than 5 seconds, consider it potentially stuck
+        if (exportProgress.progress === lastProgress && exportProgress.status === 'processing' && timeSinceUpdate > 5000) {
+          stuckCounter++;
+          console.log(`Export progress hasn't changed for ${stuckCounter} checks (${Math.round(timeSinceUpdate/1000)}s)`);
+          
+          // After 2 unchanged progress checks, try to refresh status
+          if (stuckCounter === 2) {
+            console.log('Progress appears stuck, refreshing export status');
+            refreshExportStatus(jobId);
+            lastUpdate = now; // Reset the timer after attempting refresh
+          }
+        } else if (exportProgress.progress !== lastProgress) {
+          // Progress has changed, reset counter
+          stuckCounter = 0;
+          lastProgress = exportProgress.progress;
+          lastUpdate = now;
+        }
+      }, 3000);
 
       return response.data
     } catch (err) {
-      // Handle network errors by showing in progress bar instead of alert
-      if (err.message && err.message.includes('NetworkError')) {
+      // Categorize the error
+      const categorizedError = categorizeError(err)
+      
+      // Update export progress with categorized error details
+      exportProgress.error = categorizedError.message
+      exportProgress.errorCategory = categorizedError.category
+      exportProgress.errorRecoverable = categorizedError.recoverable
+      exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+      
+      // Set appropriate status based on error category
+      if (categorizedError.category === ErrorCategory.NETWORK) {
         exportProgress.status = 'connection-error'
-        exportProgress.error = 'Network connection issue'
         
         // Create a temporary job ID so we can retry later if needed
         if (!exportProgress.jobId) {
           exportProgress.jobId = 'pending-' + Date.now()
         }
+      } else if (categorizedError.category === ErrorCategory.TIMEOUT) {
+        exportProgress.status = 'timeout-error'
+      } else if (categorizedError.category === ErrorCategory.SERVER) {
+        exportProgress.status = 'server-error'
       } else {
         // For other errors
         exportProgress.status = 'failed'
-        exportProgress.error = err.message
       }
       
       // Still set the error value for internal tracking
-      error.value = err.message
-      console.error('Error starting export:', err)
+      error.value = categorizedError.message
+      console.error('Error starting export:', err, categorizedError)
     } finally {
       loading.value = false
     }
@@ -139,17 +198,26 @@ export const useExportStore = defineStore('exports', () => {
     } catch (err) {
       console.error('Error downloading export:', err)
       
-      // Set the error message but don't change the status
+      // Categorize the error
+      const categorizedError = categorizeError(err)
+      
+      // Update the error message but don't change the status
       // This way, users can still retry the download
       if (jobId === exportProgress.jobId) {
-        exportProgress.error = `Download failed: ${err.message}`
+        exportProgress.error = categorizedError.message
+        exportProgress.errorCategory = categorizedError.category
+        exportProgress.errorRecoverable = categorizedError.recoverable
+        exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
       }
       
       if (activeExports[jobId]) {
-        activeExports[jobId].error = `Download failed: ${err.message}`
+        activeExports[jobId].error = categorizedError.message
+        activeExports[jobId].errorCategory = categorizedError.category
+        activeExports[jobId].errorRecoverable = categorizedError.recoverable
+        activeExports[jobId].recoverySuggestion = categorizedError.recoverySuggestion
       }
       
-      error.value = err.message
+      error.value = categorizedError.message
     }
   }
   
@@ -275,7 +343,15 @@ export const useExportStore = defineStore('exports', () => {
       }
     } catch (err) {
       console.error('Error retrying export:', err)
-      exportProgress.error = 'Retry failed: ' + err.message
+      
+      // Categorize the error
+      const categorizedError = categorizeError(err)
+      
+      // Update export progress with categorized error details
+      exportProgress.error = `Retry failed: ${categorizedError.message}`
+      exportProgress.errorCategory = categorizedError.category
+      exportProgress.errorRecoverable = categorizedError.recoverable
+      exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
     }
   }
 
@@ -311,6 +387,7 @@ export const useExportStore = defineStore('exports', () => {
     // Export progress updates
     socket.on('export:progress', (data) => {
       const { jobId, status, progress, processedItems, totalItems } = data
+      console.log(`Socket 'export:progress' event - jobId: ${jobId}, status: ${status}, progress: ${progress}, processedItems: ${processedItems}, totalItems: ${totalItems}`)
 
       // Update export progress if it's the current export
       if (jobId === exportProgress.jobId) {
@@ -320,10 +397,19 @@ export const useExportStore = defineStore('exports', () => {
           exportProgress.error = null
         }
         
+        console.log(`Updating exportProgress - status: ${status}, progress: ${progress}%, items: ${processedItems}/${totalItems}`)
         exportProgress.status = status
         exportProgress.progress = progress
-        exportProgress.processedItems = processedItems
-        exportProgress.totalItems = totalItems
+        exportProgress.processedItems = processedItems || 0
+        
+        // SIMPLIFIED: Simply use whatever totalItems value the server sent us
+        // No special cases or modifications - just use the real value directly
+        exportProgress.totalItems = totalItems;
+        
+        // Log current state
+        console.log(`Current exportProgress state - status: ${exportProgress.status}, progress: ${exportProgress.progress}%, items: ${exportProgress.processedItems}/${exportProgress.totalItems}`)
+        
+        // Let the actual progress be shown - no artificial minimums
       }
 
       // Update in active exports list
@@ -340,18 +426,67 @@ export const useExportStore = defineStore('exports', () => {
 
     // Export completed
     socket.on('export:completed', (data) => {
-      const { jobId, filename } = data
+      const { jobId, filename, totalItems } = data
 
       // Update if it's the current export
       if (jobId === exportProgress.jobId) {
         exportProgress.status = 'completed'
         exportProgress.progress = 100
         exportProgress.filename = filename
+        
+        // Log the data received from server
+        console.log(`Export completed event data:`, data);
+        
+        // Get the actual total items count from the server if available
+        // This is crucial for showing the correct count
+        if (totalItems && totalItems > 0) {
+          console.log(`Setting final item count from server data: ${totalItems}`);
+          exportProgress.totalItems = totalItems;
+          exportProgress.processedItems = totalItems;
+        } else {
+          // If server didn't send a count, use the one we have
+          // Make sure counts are consistent and show actual numbers if we have them
+          if (exportProgress.processedItems > 1) {
+            // We have processed items count, use it for total
+            console.log(`Using processedItems (${exportProgress.processedItems}) as total count`);
+            exportProgress.totalItems = exportProgress.processedItems;
+          } else if (!exportProgress.totalItems || exportProgress.totalItems < 1) {
+            // Get the count from backend via the API if available
+            refreshExportStatus(jobId);
+            
+            // Just use a reasonable default to avoid showing 1/1
+            console.log(`Setting fallback count based on processed items`);
+            exportProgress.totalItems = Math.max(exportProgress.processedItems, 1);
+          }
+          exportProgress.processedItems = exportProgress.totalItems;
+        }
+        
         // Clear any error messages on completion
         exportProgress.error = null
 
         // Make sure the progress bar stays visible
         exportProgress.active = true
+        
+        // Force a UI update by triggering a progress event
+        setTimeout(() => {
+          exportProgress.progress = 100;
+          // Force another item count update to ensure UI reflects correct count
+          exportProgress.processedItems = exportProgress.totalItems;
+          
+          console.log('Export completed (final check):', {
+            jobId,
+            status: exportProgress.status,
+            progress: exportProgress.progress,
+            items: `${exportProgress.processedItems}/${exportProgress.totalItems}`
+          });
+        }, 100);
+        
+        console.log('Export completed:', {
+          jobId,
+          status: exportProgress.status,
+          progress: exportProgress.progress,
+          items: `${exportProgress.processedItems}/${exportProgress.totalItems}`
+        });
       }
 
       // Update in active exports list
@@ -379,6 +514,22 @@ export const useExportStore = defineStore('exports', () => {
       if (activeExports[jobId]) {
         activeExports[jobId].status = 'failed'
         activeExports[jobId].error = error
+      }
+    })
+    
+    // Export cancelled
+    socket.on('export:cancelled', (data) => {
+      const { jobId } = data
+
+      // Update if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'cancelled'
+        exportProgress.active = false // Hide the progress bar
+      }
+
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = 'cancelled'
       }
     })
 
@@ -450,7 +601,18 @@ export const useExportStore = defineStore('exports', () => {
           exportProgress.status = job.status
           exportProgress.progress = job.progress
           exportProgress.processedItems = job.processedItems || 0
-          exportProgress.totalItems = job.totalItems || 1
+          
+          // Only update totalItems if the job has a valid count
+          if (job.totalItems && job.totalItems > 1) {
+            exportProgress.totalItems = job.totalItems
+          } else if (!exportProgress.totalItems) {
+            // CRITICAL FIX: Don't use 1 as a fallback for totalItems as it causes the "1/1" display issue
+            console.log(`[ExportStore DEBUG] No totalItems in active job, keeping current value: ${exportProgress.totalItems}`);
+            // Default to 0 (not 1) if truly no value exists
+            if (exportProgress.totalItems === undefined) {
+              exportProgress.totalItems = 0;
+            }
+          }
           
           // For completed jobs, ensure we have the filename for download
           if (job.status === 'completed' && job.filename) {
@@ -527,7 +689,18 @@ export const useExportStore = defineStore('exports', () => {
         exportProgress.status = jobData.status
         exportProgress.progress = jobData.progress
         exportProgress.processedItems = jobData.processedItems || 0
-        exportProgress.totalItems = jobData.totalItems || 1
+        
+        // Only update totalItems if the job data has a valid count
+        if (jobData.totalItems && jobData.totalItems > 1) {
+          exportProgress.totalItems = jobData.totalItems
+        } else if (!exportProgress.totalItems) {
+          // CRITICAL FIX: Don't use 1 as a fallback for totalItems as it causes the "1/1" display issue
+          console.log(`[ExportStore DEBUG] No totalItems in job data, keeping current value: ${exportProgress.totalItems}`);
+          // Default to 0 (not 1) if truly no value exists
+          if (exportProgress.totalItems === undefined) {
+            exportProgress.totalItems = 0;
+          }
+        }
         
         // Clear error message if job is working fine
         if (['processing', 'completed', 'paused'].includes(jobData.status)) {
@@ -564,8 +737,22 @@ export const useExportStore = defineStore('exports', () => {
       }
     } catch (err) {
       console.error(`Error refreshing export status for job ${jobId}:`, err)
-      // We don't update the UI status here - we'll keep the previous state
-      // This avoids showing errors for temporary network issues
+      
+      // Categorize the error but don't update UI for network errors
+      const categorizedError = categorizeError(err)
+      
+      // Only update the UI for non-network errors that might need user attention
+      if (categorizedError.category !== ErrorCategory.NETWORK) {
+        if (jobId === exportProgress.jobId) {
+          // Keep the previous status but update the error details
+          exportProgress.error = categorizedError.message
+          exportProgress.errorCategory = categorizedError.category
+          exportProgress.errorRecoverable = categorizedError.recoverable
+          exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+        }
+      }
+      // We don't update the status - we'll keep the previous state
+      // This avoids disrupting the UI for temporary issues
     }
   }
 
@@ -591,6 +778,23 @@ export const useExportStore = defineStore('exports', () => {
   // Auto-initialize socket listeners when store is first used
   initializeSocketListeners()
 
+  /**
+   * Cancels an export job
+   * @async
+   * @function cancelExport
+   * @param {string} jobId - Export job ID to cancel
+   * @returns {Promise<void>}
+   */
+  async function cancelExport(jobId = exportProgress.jobId) {
+    if (!jobId) return;
+
+    try {
+      socket.emit('export:cancel', { jobId });
+    } catch (err) {
+      console.error('Error canceling export:', err);
+    }
+  }
+
   return {
     loading,
     error,
@@ -598,6 +802,7 @@ export const useExportStore = defineStore('exports', () => {
     downloadExport,
     pauseExport,
     resumeExport,
+    cancelExport,
     retryExport,
     getExportHistory,
     refreshExportStatus,

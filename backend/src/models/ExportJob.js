@@ -74,7 +74,7 @@ const exportJobSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed', 'paused'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'paused', 'cancelled'],
       default: 'pending'
     },
     progress: {
@@ -106,6 +106,24 @@ const exportJobSchema = new mongoose.Schema(
     clientId: {
       type: String,
       required: false
+    },
+    fileSize: {
+      type: Number,
+      required: false
+    },
+    storageType: {
+      type: String,
+      enum: ['buffer', 'tempFile', 'stream'],
+      default: 'buffer'
+    },
+    tempFilePath: {
+      type: String,
+      required: false
+    },
+    processingType: {
+      type: String,
+      enum: ['direct', 'background', 'streaming'],
+      default: 'background'
     }
   },
   {
@@ -130,6 +148,28 @@ exportJobSchema.methods.complete = function(result, filename) {
   return this.save();
 };
 
+// Add method to complete the job with temp file
+exportJobSchema.methods.completeWithTempFile = function(tempFilePath, filename, fileSize) {
+  this.status = 'completed';
+  this.progress = 100;
+  this.tempFilePath = tempFilePath;
+  this.filename = filename;
+  this.fileSize = fileSize;
+  this.storageType = 'tempFile';
+  this.result = null; // Clear buffer to save memory
+  return this.save();
+};
+
+// Add method to mark job as streaming
+exportJobSchema.methods.markAsStreaming = function(filename) {
+  this.status = 'completed';
+  this.progress = 100;
+  this.filename = filename;
+  this.storageType = 'stream';
+  this.processingType = 'streaming';
+  return this.save();
+};
+
 // Add method to mark job as failed
 exportJobSchema.methods.fail = function(error) {
   this.status = 'failed';
@@ -146,6 +186,12 @@ exportJobSchema.methods.pause = function() {
 // Add method to resume job
 exportJobSchema.methods.resume = function() {
   this.status = 'processing';
+  return this.save();
+};
+
+// Add method to cancel job
+exportJobSchema.methods.cancel = function() {
+  this.status = 'cancelled';
   return this.save();
 };
 

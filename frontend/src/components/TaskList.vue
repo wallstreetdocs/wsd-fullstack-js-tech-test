@@ -287,6 +287,7 @@
       @download="handleDownloadExport"
       @pause="handlePauseExport"
       @resume="handleResumeExport"
+      @cancel="handleCancelExport"
       @close="closeExportProgress"
     />
   </div>
@@ -538,6 +539,10 @@ function handlePauseExport(jobId) {
 
 function handleResumeExport(jobId) {
   exportStore.resumeExport(jobId)
+}
+
+function handleCancelExport(jobId) {
+  exportStore.cancelExport(jobId)
 }
 
 function closeExportProgress() {

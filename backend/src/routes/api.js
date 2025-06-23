@@ -325,7 +325,7 @@ router.get('/analytics', async (req, res, next) => {
 });
 
 /**
- * POST /exportTasks - Start a background task export process
+ * POST /exportTasks - Start a task export process with automatic size-based approach
  * @name exportTasks
  * @function
  * @param {Object} req.body - Request body
@@ -342,45 +342,138 @@ router.get('/analytics', async (req, res, next) => {
  * @param {string} [req.body.filters.completedBefore] - Filter tasks completed before date
  * @param {number} [req.body.filters.estimatedTimeLt] - Filter tasks with estimated time less than value
  * @param {number} [req.body.filters.estimatedTimeGte] - Filter tasks with estimated time greater than or equal to value
- * @returns {Object} Export job metadata
+ * @param {boolean} [req.body.streamDirectly] - If true, stream the response directly (for small exports)
+ * @returns {Object} Export job metadata or streamed file
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
-    const { format, filters } = req.body;
+    const { format, filters, streamDirectly } = req.body;
     
     // DIRECT VALIDATION - ensure format is either 'json' or 'csv', nothing else
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
     console.log(`Export request - original format: '${format}', validated format: '${validatedFormat}'`);
     
-    // No need for includes check since we're explicitly setting to json or csv
-    
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
-      format: validatedFormat, // Use the validated lowercase format
+      format: validatedFormat,
       filters
     });
     
-    // Log export job creation
-    console.log('Export job created:', { jobId: exportJob._id, format, filters });
+    console.log('Export job created:', { 
+      jobId: exportJob._id, 
+      format: validatedFormat, 
+      processingType: exportJob.processingType 
+    });
     
-    // Return the job ID and status
+    // For small exports that can be processed directly
+    if (exportJob.processingType === 'direct') {
+      console.log(`Direct processing for small export job ${exportJob._id}`);
+      
+      // If client requested direct streaming, do it now
+      if (streamDirectly === true) {
+        console.log(`Streaming export directly to client for job ${exportJob._id}`);
+        
+        // Set appropriate content type and filename
+        const contentType = validatedFormat === 'json' ? 'application/json' : 'text/csv';
+        const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${validatedFormat}`;
+        
+        // Send streaming response headers
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+        
+        try {
+          // Process and stream directly to response
+          await ExportService.processSmallExportDirectly(exportJob, res);
+        } catch (streamError) {
+          console.error(`Error streaming export directly: ${streamError.message}`);
+          // If streaming fails, return an error response
+          if (!res.headersSent) {
+            res.status(500).json({
+              success: false,
+              error: 'Error processing export'
+            });
+          }
+        }
+        
+        // The response has already been handled by the streaming process
+        return;
+      } else {
+        try {
+          // Process the export immediately but don't stream directly
+          console.log(`Processing small export job ${exportJob._id} immediately`);
+          const result = await ExportService.processSmallExportDirectly(exportJob);
+          
+          // Ensure the job is fully updated with consistent counts
+          // Make sure we have non-zero counts for UI display
+          const itemCount = Math.max(result.totalCount || 1, 1);
+          await ExportJob.findByIdAndUpdate(exportJob._id, {
+            status: 'completed',
+            progress: 100,
+            processedItems: itemCount,
+            totalItems: itemCount
+          });
+          
+          // Notify clients via socket if available
+          if (socketHandlers && socketHandlers.exportHandler) {
+            socketHandlers.exportHandler.emit('job-completed', {
+              jobId: exportJob._id.toString(),
+              filename: result.filename,
+              format: validatedFormat
+            });
+            
+            // Also broadcast notification
+            socketHandlers.broadcastNotification(
+              `Export completed: ${validatedFormat.toUpperCase()} export`,
+              'success'
+            );
+          }
+          
+          // Return job metadata with completed status
+          res.status(200).json({
+            success: true,
+            data: {
+              jobId: exportJob._id,
+              status: 'completed',
+              processingType: 'direct',
+              filename: result.filename
+            },
+            message: 'Export completed successfully'
+          });
+        } catch (exportError) {
+          console.error(`Error processing small export: ${exportError.message}`);
+          res.status(500).json({
+            success: false,
+            error: 'Error processing export'
+          });
+        }
+        
+        // NOTE: Socket notifications are handled in the try block above
+        // We don't need additional socket notifications here since headers have already been sent
+        
+        return;
+      }
+    }
+    
+    // For larger exports, use background processing as before
     res.status(202).json({
       success: true,
       data: {
         jobId: exportJob._id,
-        status: exportJob.status
+        status: exportJob.status,
+        processingType: exportJob.processingType
       },
-      message: 'Export job created successfully'
+      message: 'Export job created and queued for processing'
     });
     
-    // If socket handlers are available, notify clients about new export job
+    // Notify clients via socket if available
     if (socketHandlers) {
       socketHandlers.broadcastNotification(
-        `Export job started: ${format.toUpperCase()} export`,
+        `Export job started: ${validatedFormat.toUpperCase()} export`,
         'info'
       );
     }
   } catch (error) {
+    console.error('Error in export tasks endpoint:', error);
     next(error);
   }
 });
@@ -405,12 +498,15 @@ router.get('/exportTasks/:id', async (req, res, next) => {
       });
     }
     
+    // Ensure progress is 100% for completed jobs when reporting status
+    const reportedProgress = exportJob.status === 'completed' ? 100 : exportJob.progress;
+    
     res.json({
       success: true,
       data: {
         id: exportJob._id,
         status: exportJob.status,
-        progress: exportJob.progress,
+        progress: reportedProgress,
         format: exportJob.format,
         filters: exportJob.filters,
         createdAt: exportJob.createdAt,
@@ -425,7 +521,7 @@ router.get('/exportTasks/:id', async (req, res, next) => {
 });
 
 /**
- * GET /exportTasks/:id/download - Download exported file
+ * GET /exportTasks/:id/download - Download exported file with streaming support
  * @name downloadExport
  * @function
  * @param {string} req.params.id - Export job ID
@@ -446,7 +542,7 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
       });
     }
     
-    console.log(`Found export job ${id} with status: ${exportJob.status}`);
+    console.log(`Found export job ${id} with status: ${exportJob.status}, storageType: ${exportJob.storageType}`);
     
     if (exportJob.status !== 'completed') {
       console.error(`Export job ${id} status is ${exportJob.status}, not completed`);
@@ -456,87 +552,95 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
       });
     }
     
-    if (!exportJob.result) {
-      console.error(`Export job ${id} result is missing`);
-      return res.status(404).json({
-        success: false,
-        message: 'Export result not found'
-      });
-    }
-    
-    console.log(`Export job ${id} has result of size ${exportJob.result.length} bytes`);
-    
-    // EXPLICIT CONTENT TYPE AND FILENAME LOGIC
-    let contentType, filename;
-    
-    // If format is EXACTLY 'json', set JSON headers
-    if (exportJob.format === 'json') {
-      contentType = 'application/json';
-      filename = `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
-      console.log(`JSON FORMAT: Setting content type: ${contentType}`);
-    } 
-    // Otherwise default to CSV
-    else {
-      contentType = 'text/csv';
-      filename = `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
-      console.log(`CSV FORMAT: Setting content type: ${contentType}`);
-    }
-    
-    // Set headers for file download
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-    
-    console.log(`FORMAT=${exportJob.format}, CONTENT-TYPE=${contentType}, FILENAME=${filename}`);
-    
-    // For JSON files, we need to make sure we're sending valid JSON
-    if (contentType === 'application/json') {
-      // Convert buffer to string
-      const dataString = exportJob.result.toString('utf-8');
+    try {
+      // Use the streamExportToResponse method to handle all storage types
+      await ExportService.streamExportToResponse(id, res);
       
-      // Log first 100 chars for debugging
-      console.log(`JSON data preview: ${dataString.substring(0, 100)}...`);
+      // Response already sent by streamExportToResponse
+      return;
+    } catch (streamError) {
+      console.error(`Error streaming export ${id}:`, streamError);
       
-      // Try to parse it to make sure it's valid JSON
-      try {
-        JSON.parse(dataString);
-        console.log('Successfully validated JSON data');
-      } catch (e) {
-        console.error('WARNING: Invalid JSON data, will attempt to fix');
-        // If not valid JSON, try to create a valid JSON structure
-        // This is a fallback in case the worker somehow created invalid JSON
-        try {
-          // Try to parse as CSV and convert to JSON
-          const lines = dataString.split('\n');
-          if (lines.length > 0) {
-            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-            const jsonData = [];
-            
-            for(let i = 1; i < lines.length; i++) {
-              if (lines[i].trim()) {
-                const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
-                const row = {};
-                
-                headers.forEach((header, index) => {
-                  row[header] = values[index] || '';
-                });
-                
-                jsonData.push(row);
-              }
-            }
-            
-            // Create new JSON buffer
-            exportJob.result = Buffer.from(JSON.stringify(jsonData, null, 2), 'utf-8');
-            console.log('Successfully converted CSV to JSON');
-          }
-        } catch (conversionError) {
-          console.error('Error converting to JSON:', conversionError);
+      // Fall back to the old method for backwards compatibility
+      if (exportJob.storageType === 'buffer' && exportJob.result) {
+        console.log(`Falling back to buffer download for export job ${id}`);
+        
+        // EXPLICIT CONTENT TYPE AND FILENAME LOGIC
+        let contentType, filename;
+        
+        // If format is EXACTLY 'json', set JSON headers
+        if (exportJob.format === 'json') {
+          contentType = 'application/json';
+          filename = exportJob.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
+          console.log(`JSON FORMAT: Setting content type: ${contentType}`);
+        } 
+        // Otherwise default to CSV
+        else {
+          contentType = 'text/csv';
+          filename = exportJob.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
+          console.log(`CSV FORMAT: Setting content type: ${contentType}`);
         }
+        
+        // Set headers for file download
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+        
+        // For JSON files, validate content
+        if (contentType === 'application/json') {
+          // Convert buffer to string
+          const dataString = exportJob.result.toString('utf-8');
+          
+          // Try to parse it to make sure it's valid JSON
+          try {
+            JSON.parse(dataString);
+            console.log('Successfully validated JSON data');
+          } catch (e) {
+            console.error('WARNING: Invalid JSON data, will attempt to fix');
+            // If not valid JSON, try to create a valid JSON structure
+            try {
+              // Try to parse as CSV and convert to JSON
+              const lines = dataString.split('\n');
+              if (lines.length > 0) {
+                const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+                const jsonData = [];
+                
+                for(let i = 1; i < lines.length; i++) {
+                  if (lines[i].trim()) {
+                    const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
+                    const row = {};
+                    
+                    headers.forEach((header, index) => {
+                      row[header] = values[index] || '';
+                    });
+                    
+                    jsonData.push(row);
+                  }
+                }
+                
+                // Create new JSON buffer
+                exportJob.result = Buffer.from(JSON.stringify(jsonData, null, 2), 'utf-8');
+                console.log('Successfully converted CSV to JSON');
+              }
+            } catch (conversionError) {
+              console.error('Error converting to JSON:', conversionError);
+            }
+          }
+        }
+        
+        // Send file data as Buffer with the proper headers already set
+        res.send(exportJob.result);
+        return;
+      } else {
+        // No fallback available
+        return res.status(500).json({
+          success: false,
+          message: 'Error streaming export data',
+          error: streamError.message
+        });
       }
     }
-    
-    // Send file data as Buffer with the proper headers already set
-    res.send(exportJob.result);
   } catch (error) {
+    console.error('Error in download endpoint:', error);
     next(error);
   }
 });
