@@ -8,6 +8,9 @@ import { ref, computed } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
 
+const setTimeout = globalThis.setTimeout || window.setTimeout
+const clearTimeout = globalThis.clearTimeout || window.clearTimeout
+
 /**
  * Pinia store for task management with pagination, filtering, and real-time updates
  * @function useTaskStore
@@ -28,8 +31,18 @@ export const useTaskStore = defineStore('tasks', () => {
     status: '',
     priority: '',
     sortBy: 'createdAt',
-    sortOrder: 'desc'
+    sortOrder: 'desc',
+    // Advanced filter fields
+    search: '',
+    dateFrom: '',
+    dateTo: '',
+    assignedTo: '',
+    tags: [],
+    category: ''
   })
+
+  // Add debounced search state
+  const searchDebounce = ref(null)
 
   const pendingTasks = computed(() =>
     tasks.value.filter((task) => task.status === 'pending')
@@ -59,6 +72,79 @@ export const useTaskStore = defineStore('tasks', () => {
     high: tasks.value.filter((task) => task.priority === 'high').length
   }))
 
+  // Computed for active filters count
+  const activeFiltersCount = computed(() => {
+    let count = 0
+    if (filters.value.status) count++
+    if (filters.value.priority) count++
+    if (filters.value.search) count++
+    if (filters.value.dateFrom) count++
+    if (filters.value.dateTo) count++
+    if (filters.value.assignedTo) count++
+    if (filters.value.tags.length > 0) count++
+    if (filters.value.category) count++
+    return count
+  })
+
+  // Computed for filtered tasks (client-side filtering for dashboard quick view)
+  const filteredTasks = computed(() => {
+    let filtered = [...tasks.value]
+
+    // Apply search filter
+    if (filters.value.search) {
+      const searchTerm = filters.value.search.toLowerCase()
+      filtered = filtered.filter(
+        (task) =>
+          task.title?.toLowerCase().includes(searchTerm) ||
+          task.description?.toLowerCase().includes(searchTerm) ||
+          task.tags?.some((tag) => tag.toLowerCase().includes(searchTerm))
+      )
+    }
+
+    // Apply date range filter
+    if (filters.value.dateFrom) {
+      const fromDate = new Date(filters.value.dateFrom)
+      filtered = filtered.filter((task) => new Date(task.createdAt) >= fromDate)
+    }
+
+    if (filters.value.dateTo) {
+      const toDate = new Date(filters.value.dateTo)
+      toDate.setHours(23, 59, 59, 999) // End of day
+      filtered = filtered.filter((task) => new Date(task.createdAt) <= toDate)
+    }
+
+    // Apply other filters
+    if (filters.value.status) {
+      filtered = filtered.filter((task) => task.status === filters.value.status)
+    }
+
+    if (filters.value.priority) {
+      filtered = filtered.filter(
+        (task) => task.priority === filters.value.priority
+      )
+    }
+
+    if (filters.value.assignedTo) {
+      filtered = filtered.filter(
+        (task) => task.assignedTo === filters.value.assignedTo
+      )
+    }
+
+    if (filters.value.category) {
+      filtered = filtered.filter(
+        (task) => task.category === filters.value.category
+      )
+    }
+
+    if (filters.value.tags.length > 0) {
+      filtered = filtered.filter((task) =>
+        filters.value.tags.some((tag) => task.tags?.includes(tag))
+      )
+    }
+
+    return filtered
+  })
+
   /**
    * Fetches tasks with pagination and filtering
    * @async
@@ -78,8 +164,14 @@ export const useTaskStore = defineStore('tasks', () => {
         ...params
       }
 
+      // Clean up empty parameters
       Object.keys(queryParams).forEach((key) => {
-        if (!queryParams[key]) delete queryParams[key]
+        if (
+          !queryParams[key] ||
+          (Array.isArray(queryParams[key]) && queryParams[key].length === 0)
+        ) {
+          delete queryParams[key]
+        }
       })
 
       const response = await apiClient.getTasks(queryParams)
@@ -214,6 +306,76 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
+   * Updates search filter with debouncing
+   * @function updateSearch
+   * @param {string} searchTerm - Search term
+   * @param {boolean} immediate - Whether to search immediately
+   */
+  function updateSearch(searchTerm, immediate = false) {
+    filters.value.search = searchTerm
+
+    if (searchDebounce.value) {
+      clearTimeout(searchDebounce.value)
+    }
+
+    const delay = immediate ? 0 : 500 // 500ms debounce
+
+    searchDebounce.value = setTimeout(() => {
+      pagination.value.page = 1
+      fetchTasks()
+    }, delay)
+  }
+
+  /**
+   * Updates date range filters
+   * @function updateDateRange
+   * @param {string} dateFrom - Start date
+   * @param {string} dateTo - End date
+   */
+  function updateDateRange(dateFrom, dateTo) {
+    filters.value.dateFrom = dateFrom
+    filters.value.dateTo = dateTo
+    pagination.value.page = 1
+    fetchTasks()
+  }
+
+  /**
+   * Clears all filters
+   * @function clearFilters
+   */
+  function clearFilters() {
+    filters.value = {
+      status: '',
+      priority: '',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+      search: '',
+      dateFrom: '',
+      dateTo: '',
+      assignedTo: '',
+      tags: [],
+      category: ''
+    }
+    pagination.value.page = 1
+    fetchTasks()
+  }
+
+  /**
+   * Clears a specific filter
+   * @function clearFilter
+   * @param {string} filterKey - Filter key to clear
+   */
+  function clearFilter(filterKey) {
+    if (Array.isArray(filters.value[filterKey])) {
+      filters.value[filterKey] = []
+    } else {
+      filters.value[filterKey] = ''
+    }
+    pagination.value.page = 1
+    fetchTasks()
+  }
+
+  /**
    * Sets pagination page and refetches data
    * @function setPage
    * @param {number} page - Page number
@@ -221,6 +383,69 @@ export const useTaskStore = defineStore('tasks', () => {
   function setPage(page) {
     pagination.value.page = page
     fetchTasks()
+  }
+
+  /**
+   * Sets sorting options
+   * @function setSorting
+   * @param {string} sortBy - Field to sort by
+   * @param {string} sortOrder - Sort order (asc/desc)
+   */
+  function setSorting(sortBy, sortOrder = 'desc') {
+    filters.value.sortBy = sortBy
+    filters.value.sortOrder = sortOrder
+    fetchTasks()
+  }
+
+  /**
+   * Gets predefined filter presets
+   * @function getFilterPresets
+   * @returns {Array} Array of filter presets
+   */
+  function getFilterPresets() {
+    return [
+      {
+        name: 'My Tasks Today',
+        filters: {
+          dateFrom: new Date().toISOString().split('T')[0],
+          dateTo: new Date().toISOString().split('T')[0]
+        }
+      },
+      {
+        name: 'High Priority Pending',
+        filters: {
+          priority: 'high',
+          status: 'pending'
+        }
+      },
+      {
+        name: 'Overdue Tasks',
+        filters: {
+          dateTo: new Date(Date.now() - 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split('T')[0],
+          status: 'pending'
+        }
+      },
+      {
+        name: 'This Week',
+        filters: {
+          dateFrom: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split('T')[0],
+          dateTo: new Date().toISOString().split('T')[0]
+        }
+      }
+    ]
+  }
+
+  /**
+   * Applies a filter preset
+   * @function applyFilterPreset
+   * @param {Object} preset - Filter preset to apply
+   */
+  function applyFilterPreset(preset) {
+    updateFilters(preset.filters)
   }
 
   /**
@@ -270,27 +495,44 @@ export const useTaskStore = defineStore('tasks', () => {
    */
   function cleanup() {
     socket.off('task-update', handleTaskUpdate)
+    if (searchDebounce.value) {
+      clearTimeout(searchDebounce.value)
+    }
   }
 
   return {
+    // State
     tasks,
     loading,
     error,
     pagination,
     filters,
+
+    // Computed
     pendingTasks,
     inProgressTasks,
     completedTasks,
     highPriorityTasks,
     tasksByStatus,
     tasksByPriority,
+    activeFiltersCount,
+    filteredTasks,
+
+    // Actions
     fetchTasks,
     getTask,
     createTask,
     updateTask,
     deleteTask,
     updateFilters,
+    updateSearch,
+    updateDateRange,
+    clearFilters,
+    clearFilter,
     setPage,
+    setSorting,
+    getFilterPresets,
+    applyFilterPreset,
     handleTaskUpdate,
     initializeSocketListeners,
     cleanup
