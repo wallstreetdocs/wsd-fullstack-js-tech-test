@@ -159,6 +159,85 @@ class ApiClient {
   }
 
   /**
+   * Exports tasks with filtering options
+   * @async
+   * @param {Object} [params={}] - Export parameters
+   * @param {string} [params.format='json'] - Export format (json, csv)
+   * @param {string} [params.status] - Filter by task status
+   * @param {string} [params.priority] - Filter by task priority
+   * @param {string} [params.startDate] - Filter tasks created after this date
+   * @param {string} [params.endDate] - Filter tasks created before this date
+   * @param {string} [params.search] - Search in title and description
+   * @param {string} [params.sortBy='createdAt'] - Field to sort by
+   * @param {string} [params.sortOrder='desc'] - Sort order (asc/desc)
+   * @returns {Promise<Blob>} File blob for download
+   */
+  async exportTasks(params = {}) {
+    // eslint-disable-next-line no-undef
+    const query = new URLSearchParams(params).toString()
+    const url = `${this.baseURL}/tasks/export${query ? `?${query}` : ''}`
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: params.format === 'csv' ? 'text/csv' : 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(
+          errorData.message || `Export failed with status: ${response.status}`
+        )
+      }
+
+      // Return the blob directly for file download
+      return await response.blob()
+    } catch (error) {
+      console.error('Export request failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Downloads a file blob with specified filename
+   * @param {Blob} blob - File blob to download
+   * @param {string} filename - Desired filename
+   */
+  downloadBlob(blob, filename) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
+
+  /**
+   * Exports and downloads tasks in specified format
+   * @async
+   * @param {Object} [params={}] - Export parameters
+   * @param {string} [params.format='json'] - Export format (json, csv)
+   * @returns {Promise<void>}
+   */
+  async exportAndDownloadTasks(params = {}) {
+    const format = params.format || 'json'
+    const timestamp = new Date().toISOString().split('T')[0]
+    const filename = `tasks-export-${timestamp}.${format}`
+
+    try {
+      const blob = await this.exportTasks(params)
+      this.downloadBlob(blob, filename)
+    } catch (error) {
+      console.error('Export and download failed:', error)
+      throw error
+    }
+  }
+
+  /**
    * Retrieves analytics and metrics data
    * @async
    * @returns {Promise<Object>} Analytics data

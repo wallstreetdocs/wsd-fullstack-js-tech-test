@@ -27,6 +27,34 @@ export const setSocketHandlers = (handlers) => {
 };
 
 /**
+ * Converts tasks to CSV format
+ * @param {Array} tasks - Array of task objects
+ * @returns {string} CSV formatted string
+ */
+const convertToCSV = (tasks) => {
+  if (!tasks.length) return '';
+
+  const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Estimated Time', 'Created At', 'Updated At'];
+  const csvRows = [headers.join(',')];
+
+  tasks.forEach(task => {
+    const row = [
+      task._id,
+      `"${(task.title || '').replace(/"/g, '""')}"`,
+      `"${(task.description || '').replace(/"/g, '""')}"`,
+      task.status || '',
+      task.priority || '',
+      task.estimatedTime || '',
+      task.createdAt ? new Date(task.createdAt).toISOString() : '',
+      task.updatedAt ? new Date(task.updatedAt).toISOString() : ''
+    ];
+    csvRows.push(row.join(','));
+  });
+
+  return csvRows.join('\n');
+};
+
+/**
  * GET /tasks - Retrieve tasks with pagination, filtering, and sorting
  * @name GetTasks
  * @function
@@ -68,7 +96,7 @@ router.get('/tasks', async (req, res, next) => {
     ];
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-console.log(sortBy, sortOrder, sort, query);
+    console.log(sortBy, sortOrder, sort, query);
     const tasks = await Task.find(query)
       .sort(sort)
       .limit(limit * 1)
@@ -93,6 +121,101 @@ console.log(sortBy, sortOrder, sort, query);
     next(error);
   }
 });
+
+/**
+ * GET /tasks/export - Export tasks in various formats
+ * @name ExportTasks
+ * @function
+ * @param {Object} req.query - Query parameters
+ * @param {string} [req.query.format=json] - Export format (json, csv)
+ * @param {string} [req.query.status] - Filter by task status
+ * @param {string} [req.query.priority] - Filter by task priority
+ * @param {string} [req.query.startDate] - Filter tasks created after this date
+ * @param {string} [req.query.endDate] - Filter tasks created before this date
+ * @param {string} [req.query.search] - Search in title and description
+ * @param {string} [req.query.sortBy=createdAt] - Field to sort by
+ * @param {string} [req.query.sortOrder=desc] - Sort order (asc/desc)
+ * @returns {File} Exported tasks file
+ */
+router.get('/tasks/export', async (req, res, next) => {
+  try {
+    const {
+      format = 'json',
+      status,
+      priority,
+      startDate,
+      endDate,
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Validate format
+    const validFormats = ['json', 'csv'];
+    if (!validFormats.includes(format.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid format. Supported formats: ${validFormats.join(', ')}`
+      });
+    }
+
+    // Build query (same as GET /tasks but without pagination)
+    const query = {};
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+    if (search) query.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Fetch all matching tasks (no pagination for export)
+    const tasks = await Task.find(query).sort(sort).exec();
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `tasks-export-${timestamp}`;
+
+    if (format.toLowerCase() === 'csv') {
+      const csvData = convertToCSV(tasks);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+      res.send(csvData);
+    } else {
+      // JSON format
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        totalTasks: tasks.length,
+        filters: {
+          status,
+          priority,
+          startDate,
+          endDate,
+          search
+        },
+        tasks: tasks
+      };
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
+      res.json({
+        success: true,
+        data: exportData
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * GET /tasks/:id - Retrieve a specific task by ID with Redis caching
  * @name GetTaskById
