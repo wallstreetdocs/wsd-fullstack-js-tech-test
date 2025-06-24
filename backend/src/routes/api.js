@@ -47,16 +47,28 @@ router.get('/tasks', async (req, res, next) => {
       status,
       priority,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      startDate,
+      endDate,
+      search
     } = req.query;
 
     const query = {};
     if (status) query.status = status;
     if (priority) query.priority = priority;
-
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+    // Search filter
+    if (search) query.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
+console.log(sortBy, sortOrder, sort, query);
     const tasks = await Task.find(query)
       .sort(sort)
       .limit(limit * 1)
@@ -81,7 +93,6 @@ router.get('/tasks', async (req, res, next) => {
     next(error);
   }
 });
-
 /**
  * GET /tasks/:id - Retrieve a specific task by ID with Redis caching
  * @name GetTaskById
