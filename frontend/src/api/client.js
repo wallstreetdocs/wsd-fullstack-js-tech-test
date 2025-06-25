@@ -222,6 +222,7 @@ class ApiClient {
    */
   async getExportStatus(jobId) {
     try {
+      console.log("HELOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
       const response = await this.get(`/exportTasks/${jobId}`);
       return response;
     } catch (error) {

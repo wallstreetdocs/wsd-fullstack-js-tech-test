@@ -124,6 +124,14 @@ const exportJobSchema = new mongoose.Schema(
       type: String,
       enum: ['direct', 'background', 'streaming'],
       default: 'background'
+    },
+    paused: {
+      type: Boolean,
+      default: false
+    },
+    cancelled: {
+      type: Boolean,
+      default: false
     }
   },
   {
@@ -133,9 +141,13 @@ const exportJobSchema = new mongoose.Schema(
 
 // Add method to update progress
 exportJobSchema.methods.updateProgress = function(processedItems, totalItems) {
-  this.processedItems = processedItems;
-  this.totalItems = totalItems;
-  this.progress = Math.floor((processedItems / totalItems) * 100);
+  // Validate inputs to prevent NaN
+  const validProcessedItems = Math.max(0, Number(processedItems) || 0);
+  const validTotalItems = Math.max(1, Number(totalItems) || 1); // Ensure at least 1 to prevent division by zero
+  
+  this.processedItems = validProcessedItems;
+  this.totalItems = validTotalItems;
+  this.progress = Math.floor((validProcessedItems / validTotalItems) * 100);
   return this.save();
 };
 
@@ -180,18 +192,21 @@ exportJobSchema.methods.fail = function(error) {
 // Add method to pause job
 exportJobSchema.methods.pause = function() {
   this.status = 'paused';
+  this.paused = true;
   return this.save();
 };
 
 // Add method to resume job
 exportJobSchema.methods.resume = function() {
   this.status = 'processing';
+  this.paused = false;
   return this.save();
 };
 
 // Add method to cancel job
 exportJobSchema.methods.cancel = function() {
   this.status = 'cancelled';
+  this.cancelled = true;
   return this.save();
 };
 

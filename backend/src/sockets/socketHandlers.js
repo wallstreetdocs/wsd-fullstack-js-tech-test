@@ -18,6 +18,7 @@ class SocketHandlers {
   constructor(io) {
     this.io = io;
     this.exportHandler = new ExportHandler(io, this.broadcastNotification.bind(this), this.broadcastAnalyticsUpdate.bind(this));
+    this.jobStateManager = this.exportHandler.jobStateManager; // Make jobStateManager available
     this.setupEventHandlers();
   }
 

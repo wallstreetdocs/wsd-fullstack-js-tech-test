@@ -366,17 +366,12 @@ const timeRangeOptions = [
   { title: 'More than 4 hours', value: 'gt240' }
 ]
 
-// Update filters and apply them to the store
 function updateFilters() {
-  // Transform any special format filters (like date and time ranges)
-  const transformedFilters = transformFilters()
-
-  // Update the store with transformed filters
-  taskStore.updateFilters(transformedFilters)
+  taskStore.updateFilters(filters)
 }
 
-// Transform filters into API-compatible format
-function transformFilters() {
+// Transform filters into API-compatible format for export
+function transformFiltersForExport() {
   const transformed = { ...filters }
 
   // Convert date strings to ISO format
@@ -503,11 +498,11 @@ function formatDate(date) {
 
 async function exportTasks(format) {
   try {
-    // Apply the current filters first to ensure store is updated
-    updateFilters()
+    // Use the filter transformation for export
+    const cleanedFilters = transformFiltersForExport()
 
-    // Start background export job with store's filters
-    await exportStore.exportTasks(format, taskStore.filters)
+    // Use transformed and cleaned filters
+    await exportStore.exportTasks(format, cleanedFilters)
 
     // No need to show alert, progress bar will appear automatically
   } catch (error) {

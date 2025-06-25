@@ -225,30 +225,48 @@ async function processExportTask(data) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    // Check for pause or cancellation
-    if (jobId && jobStates.has(jobId)) {
-      const jobState = jobStates.get(jobId);
+    // Check for pause or cancellation from database
+    if (jobId) {
+      const ExportJob = (await import('../models/ExportJob.js')).default;
+      const currentJob = await ExportJob.findById(jobId);
       
-      // If cancelled, stop processing
-      if (jobState.cancelled) {
-        throw new Error('Job cancelled by user');
-      }
-      
-      // If paused, wait until resumed
-      while (jobState.paused) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      if (currentJob) {
+        // If cancelled, stop processing
+        if (currentJob.cancelled) {
+          throw new Error('Job cancelled by user');
+        }
         
-        // Check for cancellation during pause
-        if (jobState.cancelled) {
-          throw new Error('Job cancelled while paused');
+        // If paused, wait until resumed
+        while (currentJob.paused) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Refresh job state from database by re-fetching
+          const refreshedJob = await ExportJob.findById(jobId);
+          if (!refreshedJob) {
+            throw new Error('Job not found during pause check');
+          }
+          
+          // Update current job reference
+          Object.assign(currentJob, refreshedJob.toObject());
+          
+          // Check for cancellation during pause
+          if (currentJob.cancelled) {
+            throw new Error('Job cancelled while paused');
+          }
         }
       }
     }
   }
   
+  // Close cursor to free resources
+  await cursor.close();
+  
   // Generate file content (this might take time for large exports)
   console.log(`[Worker] Generating ${format} file for ${processed} tasks`);
   const fileContent = generateFileContent(processedTasks, format);
+  
+  // Clear processed tasks from memory to prevent accumulation
+  processedTasks = null;
   
   // Validate format and create filename
   let actualFormat = format;
@@ -264,7 +282,7 @@ async function processExportTask(data) {
   
   return {
     totalCount,
-    processedCount: processedTasks.length,
+    processedCount: processed,
     result: fileContent,
     filename,
     format: actualFormat
@@ -285,12 +303,22 @@ function buildQueryFromFilters(filters) {
   if (filters.status) query.status = filters.status;
   if (filters.priority) query.priority = filters.priority;
   
-  // Text search in title or description
+  // Text search in title or description - optimized for performance
   if (filters.search) {
-    query.$or = [
-      { title: { $regex: filters.search, $options: 'i' } },
-      { description: { $regex: filters.search, $options: 'i' } }
-    ];
+    // Use text index if available, otherwise use optimized regex
+    const searchTerm = filters.search.trim();
+    if (searchTerm.length > 2) {
+      query.$or = [
+        { title: { $regex: `^${searchTerm}`, $options: 'i' } },
+        { description: { $regex: `^${searchTerm}`, $options: 'i' } }
+      ];
+    } else {
+      // For short terms, use exact match to avoid performance issues
+      query.$or = [
+        { title: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } }
+      ];
+    }
   }
   
   // Date range filters

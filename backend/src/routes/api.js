@@ -358,7 +358,7 @@ router.post('/exportTasks', async (req, res, next) => {
       format: validatedFormat,
       filters
     });
-    
+    console.log("EXPORT JOB CREATED ????????????????? ", exportJob._id)
     console.log('Export job created:', { 
       jobId: exportJob._id, 
       format: validatedFormat, 
@@ -401,29 +401,29 @@ router.post('/exportTasks', async (req, res, next) => {
           console.log(`Processing small export job ${exportJob._id} immediately`);
           const result = await ExportService.processSmallExportDirectly(exportJob);
           
-          // Ensure the job is fully updated with consistent counts
-          // Make sure we have non-zero counts for UI display
+          // Use JobStateManager to handle completion - this will ensure proper event emission
           const itemCount = Math.max(result.totalCount || 1, 1);
-          await ExportJob.findByIdAndUpdate(exportJob._id, {
-            status: 'completed',
-            progress: 100,
-            processedItems: itemCount,
-            totalItems: itemCount
-          });
-          
-          // Notify clients via socket if available
-          if (socketHandlers && socketHandlers.exportHandler) {
-            socketHandlers.exportHandler.emit('job-completed', {
-              jobId: exportJob._id.toString(),
-              filename: result.filename,
-              format: validatedFormat
-            });
+          if (socketHandlers && socketHandlers.jobStateManager) {
+            await socketHandlers.jobStateManager.completeJob(
+              exportJob._id.toString(),
+              result.filename,
+              itemCount,
+              'api-direct'
+            );
             
-            // Also broadcast notification
+            // Still broadcast notification for user feedback
             socketHandlers.broadcastNotification(
               `Export completed: ${validatedFormat.toUpperCase()} export`,
               'success'
             );
+          } else {
+            // Fallback if jobStateManager not available
+            await ExportJob.findByIdAndUpdate(exportJob._id, {
+              status: 'completed',
+              progress: 100,
+              processedItems: itemCount,
+              totalItems: itemCount
+            });
           }
           
           // Return job metadata with completed status

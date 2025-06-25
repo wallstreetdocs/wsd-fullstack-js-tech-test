@@ -219,12 +219,18 @@ class StreamExportService {
         .pipe(formatStream)
         .pipe(res);
       
-      // Handle errors
+      // Handle errors and cleanup
       taskStream.on('error', (error) => {
         console.error('Error in task stream:', error);
+        taskStream.close?.();
         if (!res.headersSent) {
           res.status(500).json({ success: false, error: 'Error processing export stream' });
         }
+      });
+      
+      // Ensure cursor is closed when response ends
+      res.on('close', () => {
+        taskStream.close?.();
       });
       
       // Return the filename for reference
@@ -279,8 +285,12 @@ class StreamExportService {
               chunks.push(chunk);
             }
           })
-          .on('error', reject)
+          .on('error', (error) => {
+            taskStream.close?.();
+            reject(error);
+          })
           .on('end', () => {
+            taskStream.close?.();
             // Combine chunks into a single buffer
             const buffer = Buffer.concat(chunks);
             resolve({ buffer, filename, totalCount });
@@ -304,12 +314,22 @@ class StreamExportService {
     if (filters.status) query.status = filters.status;
     if (filters.priority) query.priority = filters.priority;
     
-    // Text search in title or description
+    // Text search in title or description - optimized for performance
     if (filters.search) {
-      query.$or = [
-        { title: { $regex: filters.search, $options: 'i' } },
-        { description: { $regex: filters.search, $options: 'i' } }
-      ];
+      // Use text index if available, otherwise use optimized regex
+      const searchTerm = filters.search.trim();
+      if (searchTerm.length > 2) {
+        query.$or = [
+          { title: { $regex: `^${searchTerm}`, $options: 'i' } },
+          { description: { $regex: `^${searchTerm}`, $options: 'i' } }
+        ];
+      } else {
+        // For short terms, use exact match to avoid performance issues
+        query.$or = [
+          { title: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } }
+        ];
+      }
     }
     
     // Date range filters

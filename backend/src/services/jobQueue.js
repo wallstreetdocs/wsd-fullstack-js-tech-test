@@ -234,39 +234,6 @@ class JobQueue extends EventEmitter {
   }
 
   /**
-   * Update job progress
-   * @param {string} jobId - Job ID
-   * @param {number} progress - Progress percentage (0-100)
-   * @param {Object} [data] - Additional progress data
-   * @returns {Promise<void>}
-   */
-  async updateJobProgress(jobId, progress, data = {}) {
-    try {
-      // Update job status with progress
-      await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
-        progress: Math.min(Math.max(0, progress), 100),
-        ...data
-      });
-      
-      // Emit progress event with additional logging
-      console.log(`[JobQueue] Emitting progress event for job ${jobId}: ${progress}%, processed: ${data.processedItems}/${data.totalItems}`);
-      
-      // Make sure we include status in the event
-      const progressEvent = { 
-        id: jobId, 
-        progress, 
-        status: 'processing',
-        ...data 
-      };
-      
-      this.emit('job-progress', progressEvent);
-    } catch (error) {
-      // Error updating progress, non-critical
-      console.error(`[JobQueue] Error updating progress for job ${jobId}:`, error);
-    }
-  }
-
-  /**
    * Get job status
    * @param {string} jobId - Job ID
    * @returns {Promise<Object>} Job status object

@@ -62,20 +62,13 @@
             ></v-btn>
           </template>
           <v-btn
-            v-if="showReconnectButton"
-            size="small"
-            color="info"
-            variant="text"
-            icon="mdi-reload"
-            @click="handleReconnect"
-          ></v-btn>
-          <v-btn
             v-if="showRetryButton"
             size="small"
             color="warning"
             variant="text"
             icon="mdi-refresh"
             @click="handleRetry"
+            title="Retry export"
           ></v-btn>
           <v-btn
             size="small"
@@ -260,18 +253,12 @@ const showCancelButton = computed(() => {
   return shouldShow;
 })
 
-// Single button for connection issues - combines reconnect and retry functionality
-const showReconnectButton = computed(() => {
-  return currentStatus.value === 'connection-error'
-})
 
-// Show retry button for failed exports and server errors that are recoverable
+// Show retry button for any export that's not processing or completed
 const showRetryButton = computed(() => {
   return (
-    currentStatus.value === 'failed' || 
-    currentStatus.value === 'server-error' || 
-    currentStatus.value === 'timeout-error' ||
-    (exportProgress.value.errorRecoverable && currentStatus.value !== 'connection-error')
+    currentStatus.value !== 'processing' && 
+    currentStatus.value !== 'completed'
   )
 })
 
@@ -305,49 +292,38 @@ function getFormat() {
 }
 
 // Event handlers
-function handleReconnect() {
-  // Reset the socket connection first
+function handleRetry() {
+  // Reset the socket connection first for all retry scenarios
   exportStore.resetConnection()
   
-  // If we have a job ID, also try to resume/retry the export after reconnection
-  if (exportProgress.value.jobId) {
-    // Small delay to allow reconnection to complete
-    setTimeout(() => {
-      exportStore.refreshExportStatus(exportProgress.value.jobId)
-    }, 1000)
-  }
-}
-
-function handleRetry() {
   // Use the retry function from export store
   if (exportProgress.value.jobId) {
     exportStore.retryExport(exportProgress.value.jobId)
   }
 }
 
-// Handler functions that both emit events and call store methods directly
+// Simplified handlers - only call store methods, no duplicate emissions
 function handlePauseExport(jobId) {
   console.log(`Pausing export for job: ${jobId}`);
+  // Only emit for parent component compatibility (if needed)
   emit('pause', jobId);
+  // Store method handles the socket emission
   exportStore.pauseExport(jobId);
-  // Force the status to paused for immediate UI feedback
-  exportProgress.value.status = 'paused';
 }
 
 function handleResumeExport(jobId) {
   console.log(`Resuming export for job: ${jobId}`);
+  // Only emit for parent component compatibility (if needed)
   emit('resume', jobId);
+  // Store method handles the socket emission
   exportStore.resumeExport(jobId);
-  // Force the status to processing for immediate UI feedback
-  exportProgress.value.status = 'processing';
 }
 
 function handleCancel(jobId) {
-  // First emit the cancel event for parent components
-  console.log(`Emitting cancel event for job: ${jobId}`);
+  console.log(`Cancelling export for job: ${jobId}`);
+  // Only emit for parent component compatibility (if needed)
   emit('cancel', jobId);
-  
-  // Also use the cancel function from export store directly
+  // Store method handles the socket emission
   exportStore.cancelExport(jobId);
 }
 </script>

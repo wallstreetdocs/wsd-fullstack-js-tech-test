@@ -59,6 +59,7 @@ socket.io.on('reconnect_failed', () => {
  * Resets connection and attempts to reconnect immediately
  */
 socket.resetConnection = function() {
+  console.log("HELLLLLOOOOOOOOOOOOOOOO MATE")
   if (socket.connected) {
     socket.disconnect()
   }
