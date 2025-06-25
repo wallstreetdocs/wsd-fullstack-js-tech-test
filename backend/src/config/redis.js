@@ -16,6 +16,8 @@ dotenv.config();
 const redisClient = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6380,
+  username: process.env.REDIS_USERNAME || '',
+  password: process.env.REDIS_PASSWORD || '',
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
   lazyConnect: true

@@ -4,7 +4,7 @@
  * @description Generates realistic sample tasks with various statuses, priorities, and completion times
  * @usage npm run seed or node scripts/seed-tasks.js
  */
-
+import fs from 'fs';
 import mongoose from 'mongoose';
 import { connectMongoDB } from '../src/config/database.js';
 import Task from '../src/models/Task.js';
@@ -324,15 +324,15 @@ async function seedTasks(count = 50) {
 }
 
 // Run seeding if script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fs.existsSync(process.argv[1])) {
   const count = process.argv[2] ? parseInt(process.argv[2]) : 50;
-  
+
   if (isNaN(count) || count <= 0) {
     console.error('❌ Please provide a valid number of tasks to generate');
     console.log('Usage: node scripts/seed-tasks.js [count]');
     process.exit(1);
   }
-  
+
   console.log(`🚀 Seeding ${count} sample tasks...`);
   seedTasks(count);
 }

@@ -30,7 +30,7 @@
   "author": "Technical Test",
   "license": "MIT",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
     "cors": "^2.8.5",

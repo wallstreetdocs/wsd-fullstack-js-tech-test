@@ -22,42 +22,59 @@
 
     <v-card class="mb-4">
       <v-card-text>
+        <!-- Active Filter Chips -->
+        <div v-if="activeFilterChips.length" class="mb-2">
+          <v-chip v-for="chip in activeFilterChips" :key="chip.key" closable @click:close="clearFilter(chip.key)"
+            class="mr-2">
+            {{ chip.label }}
+          </v-chip>
+          <v-btn text small @click="clearAllFilters">Clear All</v-btn>
+        </div>
         <v-row>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="filters.status"
-              :items="statusOptions"
-              label="Status"
-              clearable
-              @update:model-value="updateFilters"
-            ></v-select>
+          <v-col cols="12" md="2">
+            <v-select v-model="filters.status" :items="statusOptions" label="Status" clearable
+              @update:model-value="updateFilters"></v-select>
           </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="filters.priority"
-              :items="priorityOptions"
-              label="Priority"
-              clearable
-              @update:model-value="updateFilters"
-            ></v-select>
+          <v-col cols="12" md="2">
+            <v-select v-model="filters.priority" :items="priorityOptions" label="Priority" clearable
+              @update:model-value="updateFilters"></v-select>
           </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="filters.sortBy"
-              :items="sortOptions"
-              label="Sort by"
-              @update:model-value="updateFilters"
-            ></v-select>
+          <v-col cols="12" md="2">
+            <v-select v-model="filters.sortBy" :items="sortOptions" label="Sort by"
+              @update:model-value="updateFilters"></v-select>
           </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="filters.sortOrder"
-              :items="orderOptions"
-              label="Order"
-              @update:model-value="updateFilters"
-            ></v-select>
+          <v-col cols="12" md="2">
+            <v-select v-model="filters.sortOrder" :items="orderOptions" label="Order"
+              @update:model-value="updateFilters"></v-select>
           </v-col>
         </v-row>
+        <!-- Advanced Filters Toggle -->
+        <v-btn text small @click="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? 'Hide' : 'Show' }} Advanced Filters
+        </v-btn>
+        <v-expand-transition>
+          <div v-show="showAdvanced">
+            <v-row class="mt-2">
+              <v-col cols="12" md="4">
+                <v-text-field v-model="filters.keyword" label="Keyword" clearable
+                  @update:model-value="updateFilters"></v-text-field>
+              </v-col>
+              <!-- Add more advanced filters here -->
+              <!-- Date Range Picker -->
+              <v-col cols="12" sm="6" md="4">
+                <v-menu v-model="dateMenu" :close-on-content-click="false" transition="scale-transition" offset-y
+                  min-width="auto">
+                  <template #activator="{ props }">
+                    <v-text-field v-model="dateRangeText" label="Created Date Range" prepend-icon="mdi-calendar"
+                      readonly v-bind="props"></v-text-field>
+                  </template>
+                  <v-date-picker v-model="filters.dateRange" show-adjacent-months color="pink-accent-4" multiple="true"
+                    @update:model-value="onDateRangeChange"></v-date-picker>
+                </v-menu>
+              </v-col>
+            </v-row>
+          </div>
+        </v-expand-transition>
       </v-card-text>
     </v-card>
 
@@ -75,12 +92,7 @@
     </div>
 
     <div v-else>
-      <v-card
-        v-for="task in taskStore.tasks"
-        :key="task._id"
-        class="task-item mb-3"
-        @click="editTask(task)"
-      >
+      <v-card v-for="task in taskStore.tasks" :key="task._id" class="task-item mb-3" @click="editTask(task)">
         <v-card-text>
           <div class="d-flex align-start">
             <div class="flex-grow-1">
@@ -89,18 +101,10 @@
                 {{ task.description }}
               </p>
               <div class="task-meta">
-                <v-chip
-                  :color="getStatusColor(task.status)"
-                  size="small"
-                  variant="flat"
-                >
+                <v-chip :color="getStatusColor(task.status)" size="small" variant="flat">
                   {{ formatStatus(task.status) }}
                 </v-chip>
-                <v-chip
-                  :color="getPriorityColor(task.priority)"
-                  size="small"
-                  variant="outlined"
-                >
+                <v-chip :color="getPriorityColor(task.priority)" size="small" variant="outlined">
                   {{ formatPriority(task.priority) }}
                 </v-chip>
                 <span class="text-caption">
@@ -131,21 +135,14 @@
       </v-card>
 
       <div class="text-center mt-4">
-        <v-pagination
-          v-model="taskStore.pagination.page"
-          :length="taskStore.pagination.pages"
-          @update:model-value="taskStore.setPage"
-        ></v-pagination>
+        <v-pagination v-model="taskStore.pagination.page" :length="taskStore.pagination.pages"
+          @update:model-value="taskStore.setPage"></v-pagination>
       </div>
     </div>
 
     <task-form-dialog v-model="showCreateDialog" @save="handleSave" />
 
-    <task-form-dialog
-      v-model="showEditDialog"
-      :task="selectedTask"
-      @save="handleSave"
-    />
+    <task-form-dialog v-model="showEditDialog" :task="selectedTask" @save="handleSave" />
 
     <v-dialog v-model="showDeleteDialog" max-width="400">
       <v-card>
@@ -164,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
 
@@ -174,41 +171,37 @@ const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
 const selectedTask = ref(null)
-
+const dateMenu = ref(false)
+const showAdvanced = ref(false)
 const filters = reactive({
   status: '',
   priority: '',
   sortBy: 'createdAt',
-  sortOrder: 'desc'
+  sortOrder: 'desc',
+  dateRange: [], // [start, end]
+  keyword: ''
 })
 
-const statusOptions = [
-  { title: 'Pending', value: 'pending' },
-  { title: 'In Progress', value: 'in-progress' },
-  { title: 'Completed', value: 'completed' }
-]
 
-const priorityOptions = [
-  { title: 'Low', value: 'low' },
-  { title: 'Medium', value: 'medium' },
-  { title: 'High', value: 'high' }
-]
-
-const sortOptions = [
-  { title: 'Created Date', value: 'createdAt' },
-  { title: 'Updated Date', value: 'updatedAt' },
-  { title: 'Title', value: 'title' },
-  { title: 'Priority', value: 'priority' },
-  { title: 'Status', value: 'status' }
-]
-
-const orderOptions = [
-  { title: 'Newest First', value: 'desc' },
-  { title: 'Oldest First', value: 'asc' }
-]
+const dateRangeText = computed(() => {
+  if (filters.dateRange && filters.dateRange.length === 2) {
+    const [start, end] = filters.dateRange
+    const format = d => {
+      if (!d) return ''
+      const date = new Date(d)
+      const yyyy = date.getFullYear()
+      const mm = String(date.getMonth() + 1).padStart(2, '0')
+      const dd = String(date.getDate()).padStart(2, '0')
+      return `${yyyy}/${mm}/${dd}`
+    }
+    return `${format(start)} - ${format(end)}`
+  }
+  return ''
+})
 
 function updateFilters() {
   taskStore.updateFilters(filters)
+  console.log('Filters updated:', filters)
 }
 
 function editTask(task) {
@@ -272,6 +265,37 @@ function formatPriority(priority) {
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString()
+}
+
+function onDateRangeChange(val) {
+  console.log(val)
+  if (val.length > 1){
+    dateMenu.value = false
+    updateFilters()
+  }
+}
+
+// Active filter chips
+const activeFilterChips = computed(() => {
+  const chips = []
+  if (filters.status) chips.push({ key: 'status', label: `Status: ${formatStatus(filters.status)}` })
+  if (filters.priority) chips.push({ key: 'priority', label: `Priority: ${formatPriority(filters.priority)}` })
+  if (filters.keyword) chips.push({ key: 'keyword', label: `Keyword: "${filters.keyword}"` })
+  if (filters.dateRange && filters.dateRange.length === 2)
+    chips.push({ key: 'dateRange', label: `Created: ${filters.dateRange[0]} - ${filters.dateRange[1]}` })
+  return chips
+})
+
+function clearFilter(key) {
+  filters[key] = key === 'dateRange' ? [] : ''
+  updateFilters()
+}
+
+function clearAllFilters() {
+  Object.keys(filters).forEach(key => {
+    filters[key] = Array.isArray(filters[key]) ? [] : ''
+  })
+  updateFilters()
 }
 
 onMounted(() => {
