@@ -23,6 +23,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     tasksCreatedToday: 0,
     tasksCompletedToday: 0,
     recentActivity: [],
+    exportHistoryCount: 0, // <-- Add this line
     lastUpdated: null
   })
 
