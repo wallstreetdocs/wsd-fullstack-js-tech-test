@@ -38,53 +38,6 @@ class ExportHandler extends EventEmitter {
    */
   registerHandlers(socket) {
 
-    // Handle export job requests -- REMOVE
-    socket.on('export:start', async (data) => {
-      try {
-        const { format, filters } = data;
-        
-        // Create a new export job
-        const exportJob = await ExportService.createExportJob({
-          format,
-          filters,
-          clientId: socket.id
-        });
-        
-        // Send initial job info
-        socket.emit('export:created', {
-          jobId: exportJob._id,
-          status: exportJob.status,
-          progress: exportJob.progress
-        });
-
-        // SIMPLIFIED: We already have the actual count from when the job was created
-        // Just use what we have in the database directly - no need to recalculate
-        const totalCount = exportJob.totalItems;
-        console.log(`[ExportHandler] Export job ${exportJob._id} has ${totalCount} items total`);
-        
-        // The count is already saved in the database, we don't need to re-save it
-        
-        // SIMPLIFIED: Send initial progress update with the actual count
-        console.log(`[ExportHandler] Sending initial progress update for job ${exportJob._id} with ${totalCount} items`);
-        
-        // Create a simple, clear progress update
-        const initialProgress = {
-          jobId: exportJob._id,
-          status: 'processing',
-          progress: 0,           // Starting at 0%
-          processedItems: 0,     // No items processed yet
-          totalItems: totalCount // The REAL total from the database
-        };
-        
-        // Send to the client and broadcast
-        socket.emit('export:progress', initialProgress);
-        this.io.emit('export:progress', initialProgress);
-      } catch (error) {
-        console.error('Error starting export job:', error);
-        socket.emit('export:error', { message: 'Failed to start export job' });
-      }
-    });
-    
     // Handle export job pause request
     socket.on('export:pause', async (data) => {
       try {
@@ -130,37 +83,6 @@ class ExportHandler extends EventEmitter {
       } catch (error) {
         console.error('Error canceling export job:', error);
         socket.emit('export:error', { message: 'Failed to cancel export job' });
-      }
-    });
-
-    // Handle export job download request
-    socket.on('export:download', async (data) => {
-      try {
-        const { jobId } = data;
-        const downloadData = await ExportService.getExportDownload(jobId);
-        
-        socket.emit('export:download-ready', {
-          jobId,
-          data: downloadData.content.toString('base64'),
-          filename: downloadData.filename,
-          format: downloadData.format
-        });
-      } catch (error) {
-        console.error('Error preparing export download:', error);
-        socket.emit('export:error', { message: 'Failed to prepare export download' });
-      }
-    });
-
-    // Handle export job history request
-    socket.on('export:get:history', async (data = {}) => {
-      try {
-        const { page = 1, limit = 10 } = data;
-        const history = await ExportService.getExportHistory(page, limit);
-        
-        socket.emit('export:history', history);
-      } catch (error) {
-        console.error('Error fetching export history:', error);
-        socket.emit('export:error', { message: 'Failed to fetch export history' });
       }
     });
 
@@ -356,70 +278,6 @@ class ExportHandler extends EventEmitter {
         }
       }
     });
-    
-    // Removed duplicate event listeners - ExportService no longer emits events
-    // JobStateManager handles all status broadcasting directly
-  }
-
-  /**
-   * Process an export job and send progress updates via socket
-   * @param {Object} job - Export job to process
-   * @param {Object} socket - Client socket
-   * @returns {Promise<void>}
-   */
-  async processExportJob(job, socket) {
-    try {
-      // Progress update callback
-      const progressCallback = (updatedJob) => {
-        const progressUpdate = {
-          jobId: updatedJob._id,
-          status: updatedJob.status,
-          progress: updatedJob.progress,
-          processedItems: updatedJob.processedItems || 0,
-          totalItems: updatedJob.totalItems || 0
-        };
-        
-        console.log(`[ExportHandler][processExportJob] Sending progress update: Job ${updatedJob._id}, Status: ${updatedJob.status}, Progress: ${updatedJob.progress}%, Items: ${updatedJob.processedItems || 0}/${updatedJob.totalItems || 0}`);
-        socket.emit('export:progress', progressUpdate);
-        console.log(`[ExportHandler][processExportJob] Progress sent to client ${socket.id}: ${JSON.stringify(progressUpdate)}`);
-        
-        // If job completed, send completion notification
-        if (updatedJob.status === 'completed') {
-          socket.emit('export:completed', {
-            jobId: updatedJob._id,
-            filename: updatedJob.filename
-          });
-          
-          // Broadcast notification about export completion
-          this.notificationCallback(
-            `Export completed: ${updatedJob.filename}`,
-            'success'
-          );
-          
-          // Trigger analytics update to refresh recent activity with the new export job
-          this.analyticsUpdateCallback();
-        }
-        
-        // If job failed, send error notification
-        if (updatedJob.status === 'failed') {
-          socket.emit('export:failed', {
-            jobId: updatedJob._id,
-            error: updatedJob.error
-          });
-          
-          // Update analytics for failed exports too
-          this.analyticsUpdateCallback();
-        }
-      };
-      
-      // Start processing in the background
-      ExportService.processExportJob(job, progressCallback).catch((error) => {
-        console.error('Error in background export processing:', error);
-      });
-    } catch (error) {
-      console.error('Error processing export job:', error);
-      socket.emit('export:error', { message: 'Failed to process export job' });
-    }
   }
 }
 

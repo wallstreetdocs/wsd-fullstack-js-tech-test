@@ -467,78 +467,8 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
       // Response already sent by streamExportToResponse
       return;
     } catch (streamError) {
-      console.error(`Error streaming export ${id}:`, streamError);
+        console.error(`Error streaming export ${id}:`, streamError);
       
-      // Fall back to the old method for backwards compatibility
-      if (exportJob.storageType === 'buffer' && exportJob.result) {
-        console.log(`Falling back to buffer download for export job ${id}`);
-        
-        // EXPLICIT CONTENT TYPE AND FILENAME LOGIC
-        let contentType, filename;
-        
-        // If format is EXACTLY 'json', set JSON headers
-        if (exportJob.format === 'json') {
-          contentType = 'application/json';
-          filename = exportJob.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
-          console.log(`JSON FORMAT: Setting content type: ${contentType}`);
-        } 
-        // Otherwise default to CSV
-        else {
-          contentType = 'text/csv';
-          filename = exportJob.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
-          console.log(`CSV FORMAT: Setting content type: ${contentType}`);
-        }
-        
-        // Set headers for file download
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-        
-        // For JSON files, validate content
-        if (contentType === 'application/json') {
-          // Convert buffer to string
-          const dataString = exportJob.result.toString('utf-8');
-          
-          // Try to parse it to make sure it's valid JSON
-          try {
-            JSON.parse(dataString);
-            console.log('Successfully validated JSON data');
-          } catch (e) {
-            console.error('WARNING: Invalid JSON data, will attempt to fix');
-            // If not valid JSON, try to create a valid JSON structure
-            try {
-              // Try to parse as CSV and convert to JSON
-              const lines = dataString.split('\n');
-              if (lines.length > 0) {
-                const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-                const jsonData = [];
-                
-                for(let i = 1; i < lines.length; i++) {
-                  if (lines[i].trim()) {
-                    const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
-                    const row = {};
-                    
-                    headers.forEach((header, index) => {
-                      row[header] = values[index] || '';
-                    });
-                    
-                    jsonData.push(row);
-                  }
-                }
-                
-                // Create new JSON buffer
-                exportJob.result = Buffer.from(JSON.stringify(jsonData, null, 2), 'utf-8');
-                console.log('Successfully converted CSV to JSON');
-              }
-            } catch (conversionError) {
-              console.error('Error converting to JSON:', conversionError);
-            }
-          }
-        }
-        
-        // Send file data as Buffer with the proper headers already set
-        res.send(exportJob.result);
-        return;
-      } else {
         // No fallback available
         return res.status(500).json({
           success: false,
@@ -546,7 +476,6 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
           error: streamError.message
         });
       }
-    }
   } catch (error) {
     console.error('Error in download endpoint:', error);
     next(error);

@@ -503,17 +503,6 @@ export const useExportStore = defineStore('exports', () => {
       }
     })
 
-    // Export download ready
-    socket.on('export:download-ready', (data) => {
-      const { jobId, filename } = data
-
-      // Update active exports
-      if (activeExports[jobId]) {
-        activeExports[jobId].downloadReady = true
-        activeExports[jobId].filename = filename
-      }
-    })
-
     // Check for active exports on reconnection
     socket.on('connect', () => {
       console.log('Export store: Reconnected, checking for active exports...')

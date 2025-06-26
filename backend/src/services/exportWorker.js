@@ -25,6 +25,7 @@ if (fs.existsSync(envPath)) {
 
 // Models (need to import them here since this is a separate thread)
 import Task from '../models/Task.js';
+import streamExportService from './streamExportService.js';
 
 // Connect to MongoDB (needed for each worker)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/task-analytics';
@@ -157,8 +158,8 @@ function handleControlMessage(control) {
 async function processExportTask(data) {
   const { format, filters, jobId } = data;
   
-  // Build query from filters
-  const query = buildQueryFromFilters(filters);
+  // Build query from filters using StreamExportService
+  const query = streamExportService.buildQueryFromFilters(filters);
   
   // Set up sorting
   const sort = {};
@@ -188,8 +189,10 @@ async function processExportTask(data) {
   // Create write stream to temporary file
   const writeStream = createWriteStream(tempFilePath, { encoding: 'utf8' });
   
-  // Create format-specific transform stream
-  const formatTransform = createFormatTransform(format);
+  // Create format-specific transform stream using StreamExportService
+  const formatTransform = format === 'csv' 
+    ? streamExportService.createCsvTransform()
+    : streamExportService.createJsonTransform();
   
   // Connect the transform to the write stream
   formatTransform.pipe(writeStream);
@@ -308,149 +311,5 @@ async function processExportTask(data) {
   // Important: This ensures we're explicitly sending the correct format back
 }
 
-/**
- * Build database query from job filters
- * @param {Object} filters - Filter parameters
- * @returns {Object} MongoDB query object
- */
-function buildQueryFromFilters(filters) {
-  const query = {};
-  
-  // Basic filters
-  if (filters.status) query.status = filters.status;
-  if (filters.priority) query.priority = filters.priority;
-  
-  // Text search in title or description - optimized for performance
-  if (filters.search) {
-    // Use text index if available, otherwise use optimized regex
-    const searchTerm = filters.search.trim();
-    if (searchTerm.length > 2) {
-      query.$or = [
-        { title: { $regex: `^${searchTerm}`, $options: 'i' } },
-        { description: { $regex: `^${searchTerm}`, $options: 'i' } }
-      ];
-    } else {
-      // For short terms, use exact match to avoid performance issues
-      query.$or = [
-        { title: { $regex: searchTerm, $options: 'i' } },
-        { description: { $regex: searchTerm, $options: 'i' } }
-      ];
-    }
-  }
-  
-  // Date range filters
-  if (filters.createdAfter || filters.createdBefore) {
-    query.createdAt = {};
-    if (filters.createdAfter) query.createdAt.$gte = new Date(filters.createdAfter);
-    if (filters.createdBefore) query.createdAt.$lte = new Date(filters.createdBefore);
-  }
-  
-  // Completed date range filters
-  if (filters.completedAfter || filters.completedBefore) {
-    query.completedAt = {};
-    if (filters.completedAfter) query.completedAt.$gte = new Date(filters.completedAfter);
-    if (filters.completedBefore) query.completedAt.$lte = new Date(filters.completedBefore);
-  }
-  
-  // Estimated time filters
-  if (filters.estimatedTimeLt || filters.estimatedTimeGte) {
-    query.estimatedTime = {};
-    if (filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(filters.estimatedTimeLt);
-    if (filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(filters.estimatedTimeGte);
-  }
-  
-  return query;
-}
-
-/**
- * Create a format-specific transform stream for streaming exports
- * @param {string} format - Export format (csv or json)
- * @returns {Transform} Transform stream for the specified format
- */
-function createFormatTransform(format) {
-  if (format === 'csv') {
-    return createCsvTransform();
-  } else if (format === 'json') {
-    return createJsonTransform();
-  } else {
-    throw new Error(`Unsupported export format: ${format}`);
-  }
-}
-
-/**
- * Create a CSV transform stream
- * @returns {Transform} CSV transform stream
- */
-function createCsvTransform() {
-  const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
-  let isFirstRow = true;
-
-  return new Transform({
-    objectMode: true,
-    transform(task, encoding, callback) {
-      try {
-        // Add headers on first row
-        const headerRow = isFirstRow ? headers.join(',') + '\n' : '';
-        isFirstRow = false;
-
-        // Format task data
-        const row = [
-          task._id,
-          task.title || '',
-          task.description || '',
-          task.status || '',
-          task.priority || '',
-          task.createdAt || '',
-          task.updatedAt || '',
-          task.completedAt || ''
-        ]
-          .map(cell => `"${String(cell).replace(/"/g, '""')}"`)
-          .join(',');
-
-        callback(null, headerRow + row + '\n');
-      } catch (error) {
-        callback(error);
-      }
-    }
-  });
-}
-
-/**
- * Create a JSON transform stream
- * @returns {Transform} JSON transform stream
- */
-function createJsonTransform() {
-  let isFirstTask = true;
-
-  return new Transform({
-    objectMode: true,
-    transform(task, encoding, callback) {
-      try {
-        // Start array on first task
-        const prefix = isFirstTask ? '[' : '';
-        isFirstTask = false;
-
-        // Format task as JSON
-        const taskJson = JSON.stringify(task);
-        
-        // Add comma separator for all but first task
-        const separator = prefix ? '' : ',';
-
-        callback(null, prefix + separator + taskJson);
-      } catch (error) {
-        callback(error);
-      }
-    },
-    flush(callback) {
-      // Close JSON array
-      if (isFirstTask) {
-        // No tasks processed
-        callback(null, '[]');
-      } else {
-        callback(null, ']');
-      }
-    }
-  });
-}
 
 // Worker initialization complete

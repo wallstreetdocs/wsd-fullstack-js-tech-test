@@ -14,7 +14,6 @@ import { connectRedis } from './config/redis.js';
 import apiRoutes, { setSocketHandlers } from './routes/api.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import SocketHandlers from './sockets/socketHandlers.js';
-import ExportHandler from './sockets/exportHandler.js';
 import AnalyticsService from './services/analyticsService.js';
 import workerPool from './services/workerPool.js';
 import jobQueue from './services/jobQueue.js';
