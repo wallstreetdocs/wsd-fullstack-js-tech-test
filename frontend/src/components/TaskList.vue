@@ -18,6 +18,14 @@
         <v-icon left>mdi-plus</v-icon>
         New Task
       </v-btn>
+      <v-btn class="ml-2" color="secondary" @click="exportTasks('csv')">
+        <v-icon left>mdi-download</v-icon>
+        Export CSV
+      </v-btn>
+      <v-btn class="ml-2" color="secondary" @click="exportTasks('json')">
+        <v-icon left>mdi-code-json</v-icon>
+        Export JSON
+      </v-btn>
     </div>
 
     <v-card class="mb-4">
@@ -157,6 +165,10 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
   </div>
 </template>
 
@@ -164,7 +176,11 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+import apiClient from '../api/client.js'
+
 import dayjs from 'dayjs'
+
+// const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 const taskStore = useTaskStore()
 
@@ -287,7 +303,7 @@ function formatDate(date) {
 
 function onDateRangeChange(val) {
   console.log(val)
-  if (val.length > 1){
+  if (val.length > 1) {
     dateMenu.value = false
     updateFilters()
   }
@@ -300,7 +316,7 @@ const activeFilterChips = computed(() => {
   if (filters.priority) chips.push({ key: 'priority', label: `Priority: ${formatPriority(filters.priority)}` })
   if (filters.keyword) chips.push({ key: 'keyword', label: `Keyword: "${filters.keyword}"` })
   if (filters.dateRange && filters.dateRange.length === 2)
-    chips.push({ key: 'dateRange', label: `Created: ${dayjs(filters.dateRange[0]).format('DD/MM/YYYY')} - ${dayjs(filters.dateRange[1]).format('DD/MM/YYYY') }` })
+    chips.push({ key: 'dateRange', label: `Created: ${dayjs(filters.dateRange[0]).format('DD/MM/YYYY')} - ${dayjs(filters.dateRange[1]).format('DD/MM/YYYY')}` })
   return chips
 })
 
@@ -314,6 +330,72 @@ function clearAllFilters() {
     filters[key] = Array.isArray(filters[key]) ? [] : ''
   })
   updateFilters()
+}
+
+const snackbar = ref({
+  show: false,
+  color: 'success',
+  text: ''
+})
+
+async function exportTasks(format) {
+  // Build query params from current filters
+  const params = new URLSearchParams()
+  if (filters.status) params.append('status', filters.status)
+  if (filters.priority) params.append('priority', filters.priority)
+  if (filters.sortBy) params.append('sortBy', filters.sortBy)
+  if (filters.sortOrder) params.append('sortOrder', filters.sortOrder)
+  if (filters.keyword) params.append('keyword', filters.keyword)
+  if (filters.dateRange && filters.dateRange.length === 2) {
+    const [start, end] = filters.dateRange
+    params.append(
+      'dateRange',
+      encodeURIComponent(
+        `${new Date(start).toString()},${new Date(end).toString()}`
+      )
+    )
+  }
+  params.append('format', format)
+
+  try {
+    const response = await fetch(`${apiClient.baseURL}/tasks/export?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        Accept: format === 'csv' ? 'text/csv' : 'application/json'
+      }
+    })
+
+    if (!response.ok) throw new Error('Export failed')
+
+    // Get filename from Content-Disposition header if available
+    const disposition = response.headers.get('Content-Disposition')
+    let filename = `tasks.${format}`
+    if (disposition && disposition.includes('filename=')) {
+      filename = disposition.split('filename=')[1].replace(/"/g, '')
+    }
+
+    // Stream the response as a blob and trigger download
+    const blob = await response.blob()
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    snackbar.value = {
+      show: true,
+      color: 'success',
+      text: `Exported tasks as ${format.toUpperCase()} successfully!`
+    }
+  } catch (err) {
+    console.error('Export failed:', err)
+    snackbar.value = {
+      show: true,
+      color: 'error',
+      text: 'Failed to export tasks.'
+    }
+  }
 }
 
 onMounted(() => {

@@ -7,6 +7,13 @@ import express from 'express';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
+// import { json2csv } from 'json-2-csv';
+import { StreamParser } from '@json2csv/plainjs';
+import { AsyncParser } from '@json2csv/node';
+import fs from 'fs';
+import path from 'path';
+
+import dayjs from 'dayjs';
 
 const router = express.Router();
 
@@ -89,6 +96,104 @@ router.get('/tasks', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+router.get('/tasks/export', async (req, res, next) => {
+  try {
+    // ── 1.  Extract & validate query params ──────────────────────────────
+    const {
+      format = 'csv',
+      status,
+      priority,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      dateRange
+    } = req.query;
+
+    const query = {};
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+
+    if (dateRange) {
+      const [startStr, endStr] = decodeURIComponent(dateRange).split(',');
+      const start =
+        startStr && dayjs(startStr).isValid() ? new Date(startStr) : null;
+      const end = endStr && dayjs(endStr).isValid() ? new Date(endStr) : null;
+      if (start || end) {
+        query.createdAt = {};
+        if (start) query.createdAt.$gte = start;
+        if (end) query.createdAt.$lte = end;
+      }
+    }
+
+    // ── 2.  Build cursor ─────────────────────────────────────────────────
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+    const cursor = Task.find(query).sort(sort).lean().cursor();
+
+    // ── 3.  CSV export with StreamParser ────────────────────────────────
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="tasks.csv"');
+
+      // Define the fields you want in the CSV
+      const fields = [
+        '_id',
+        'title',
+        'description',
+        'priority',
+        'status',
+        'createdAt',
+        'updatedAt',
+        'completedAt',
+        'estimatedTime',
+        'actualTime'
+      ];
+
+      // Write CSV header
+      res.write(fields.join(',') + '\n');
+
+      // Write each row
+      for await (const doc of cursor) {
+        const row = fields.map(field => {
+          let val = doc[field];
+          if (val === undefined || val === null) return '';
+          // Escape double quotes and commas
+          val = String(val).replace(/"/g, '""');
+          if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+            val = `"${val}"`;
+          }
+          return val;
+        }).join(',');
+        res.write(row + '\n');
+      }
+      res.end();
+      return;
+    }
+
+    // ── 4.  JSON export (unchanged) ─────────────────────────────────────
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="tasks.json"');
+
+      res.write('[');
+      let first = true;
+      for await (const doc of cursor) {
+        if (!first) res.write(',');
+        res.write(JSON.stringify(doc));
+        first = false;
+      }
+      res.write(']');
+      res.end();
+      return;
+    }
+
+    // ── 5.  Unsupported format ──────────────────────────────────────────
+    res
+      .status(400)
+      .json({ success: false, message: 'Unsupported export format' });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -287,5 +392,16 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+/**
+ * GET /tasks/export - Export tasks in various formats (csv, json)
+ * @name ExportTasks
+ * @function
+ * @param {string} req.query.format - Export format: 'csv' or 'json'
+ * @param {string} [req.query.status] - Filter by task status
+ * @param {string} [req.query.priority] - Filter by task priority
+ * @param {string} [req.query.dateRange] - Date range filter
+ * @returns {File} Downloadable file in requested format
+ */
 
 export default router;

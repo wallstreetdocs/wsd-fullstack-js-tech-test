@@ -22,33 +22,44 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} [options={}] - Fetch options
-   * @returns {Promise<Object>} API response data
+   * @returns {Promise<Object|Blob>} API response data or Blob for file downloads
    * @throws {Error} Network or API errors
    */
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`
     const config = {
       headers: {
-        'Content-Type': 'application/json',
         ...options.headers
       },
       ...options
     }
 
-    if (config.body && typeof config.body === 'object') {
+    // Default to application/json for POST/PUT unless overridden
+    if (!config.headers['Content-Type'] && (config.method === 'POST' || config.method === 'PUT')) {
+      config.headers['Content-Type'] = 'application/json'
+    }
+
+    if (config.body && typeof config.body === 'object' && config.headers['Content-Type'] === 'application/json') {
       config.body = JSON.stringify(config.body)
     }
 
     try {
       const response = await fetch(url, config)
-      const data = await response.json()
 
+      // Handle CSV or JSON download
+      const contentType = response.headers.get('Content-Type')
+      if (contentType && (contentType.includes('text/csv') || contentType.includes('application/octet-stream'))) {
+        if (!response.ok) throw new Error('Export failed')
+        return await response.blob()
+      }
+
+      // Default: JSON response
+      const data = await response.json()
       if (!response.ok) {
         throw new Error(
           data.message || `HTTP error! status: ${response.status}`
         )
       }
-
       return data
     } catch (error) {
       console.error('API Request failed:', error)
@@ -61,50 +72,26 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} [params={}] - URL query parameters
-   * @returns {Promise<Object>} API response data
+   * @param {Object} [headers={}] - Optional headers
+   * @returns {Promise<Object|Blob>} API response data or Blob for file downloads
    */
-  async get(endpoint, params = {}) {
+  async get(endpoint, params = {}, headers = {}) {
     const query = new window.URLSearchParams(params).toString()
     const url = query ? `${endpoint}?${query}` : endpoint
-    return this.request(url, { method: 'GET' })
+    return this.request(url, { method: 'GET', headers })
   }
 
   /**
-   * Makes POST request to API endpoint
+   * Export tasks in CSV or JSON format
    * @async
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} data - Request body data
-   * @returns {Promise<Object>} API response data
+   * @param {Object} params - Query parameters (format, filters, etc.)
+   * @returns {Promise<Blob|Object>} Exported file blob or JSON
    */
-  async post(endpoint, data) {
-    return this.request(endpoint, {
-      method: 'POST',
-      body: data
-    })
-  }
-
-  /**
-   * Makes PUT request to API endpoint
-   * @async
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} data - Request body data
-   * @returns {Promise<Object>} API response data
-   */
-  async put(endpoint, data) {
-    return this.request(endpoint, {
-      method: 'PUT',
-      body: data
-    })
-  }
-
-  /**
-   * Makes DELETE request to API endpoint
-   * @async
-   * @param {string} endpoint - API endpoint path
-   * @returns {Promise<Object>} API response data
-   */
-  async delete(endpoint) {
-    return this.request(endpoint, { method: 'DELETE' })
+  async getExportTasks(params = {}) {
+    const format = params.format || 'csv'
+    let accept = 'application/json'
+    if (format === 'csv') accept = 'text/csv'
+    return this.get('/tasks/export', params, { Accept: accept })
   }
 
   /**
