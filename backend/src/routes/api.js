@@ -47,12 +47,22 @@ router.get('/tasks', async (req, res, next) => {
       status,
       priority,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      dateRange
     } = req.query;
 
     const query = {};
     if (status) query.status = status;
     if (priority) query.priority = priority;
+
+    // Date range filter
+    if (dateRange) {
+      // Example: "Mon Jun 09 2025 00:00:00 GMT+0600 (Bangladesh Standard Time),Sat Jun 14 2025 00:00:00 GMT+0600 (Bangladesh Standard Time)"
+      const [start, end] = decodeURIComponent(dateRange).split(',');
+      query.createdAt = {};
+      if (start) query.createdAt.$gte = new Date(start);
+      if (end) query.createdAt.$lte = new Date(end);
+    }
 
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;

@@ -164,6 +164,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+import dayjs from 'dayjs'
 
 const taskStore = useTaskStore()
 
@@ -182,19 +183,36 @@ const filters = reactive({
   keyword: ''
 })
 
+const statusOptions = [
+  { title: 'Pending', value: 'pending' },
+  { title: 'In Progress', value: 'in-progress' },
+  { title: 'Completed', value: 'completed' }
+]
+
+const priorityOptions = [
+  { title: 'Low', value: 'low' },
+  { title: 'Medium', value: 'medium' },
+  { title: 'High', value: 'high' }
+]
+
+const sortOptions = [
+  { title: 'Created Date', value: 'createdAt' },
+  { title: 'Updated Date', value: 'updatedAt' },
+  { title: 'Title', value: 'title' },
+  { title: 'Priority', value: 'priority' },
+  { title: 'Status', value: 'status' }
+]
+
+const orderOptions = [
+  { title: 'Newest First', value: 'desc' },
+  { title: 'Oldest First', value: 'asc' }
+]
 
 const dateRangeText = computed(() => {
   if (filters.dateRange && filters.dateRange.length === 2) {
     const [start, end] = filters.dateRange
-    const format = d => {
-      if (!d) return ''
-      const date = new Date(d)
-      const yyyy = date.getFullYear()
-      const mm = String(date.getMonth() + 1).padStart(2, '0')
-      const dd = String(date.getDate()).padStart(2, '0')
-      return `${yyyy}/${mm}/${dd}`
-    }
-    return `${format(start)} - ${format(end)}`
+
+    return `${dayjs(start).format('DD/MM/YYYY')} - ${dayjs(end).format('DD/MM/YYYY')}`
   }
   return ''
 })
@@ -282,7 +300,7 @@ const activeFilterChips = computed(() => {
   if (filters.priority) chips.push({ key: 'priority', label: `Priority: ${formatPriority(filters.priority)}` })
   if (filters.keyword) chips.push({ key: 'keyword', label: `Keyword: "${filters.keyword}"` })
   if (filters.dateRange && filters.dateRange.length === 2)
-    chips.push({ key: 'dateRange', label: `Created: ${filters.dateRange[0]} - ${filters.dateRange[1]}` })
+    chips.push({ key: 'dateRange', label: `Created: ${dayjs(filters.dateRange[0]).format('DD/MM/YYYY')} - ${dayjs(filters.dateRange[1]).format('DD/MM/YYYY') }` })
   return chips
 })
 
