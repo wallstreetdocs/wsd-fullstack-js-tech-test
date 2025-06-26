@@ -19,7 +19,6 @@ const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3001', {
   timeout: 10000
 })
 
-// Add event listeners and dispatch custom events that components can use
 socket.on('connect', () => {
   console.log('✅ Connected to server')
   window.dispatchEvent(new CustomEvent('socket:connect'))

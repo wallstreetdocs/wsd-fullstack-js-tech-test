@@ -9,6 +9,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { createWriteStream } from 'fs';
+import { Transform } from 'stream';
+import os from 'os';
 
 // Load environment variables
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -175,14 +178,28 @@ async function processExportTask(data) {
     totalItems: totalCount
   });
   
-  // Use cursor for memory-efficient processing with real-time updates
+  // Create a temporary file for streaming output
+  const tempDir = os.tmpdir();
+  const tempFilename = `export_${jobId}_${Date.now()}.tmp`;
+  const tempFilePath = path.join(tempDir, tempFilename);
+  
+  console.log(`[Worker] Starting streaming export of ${totalCount} tasks to ${tempFilePath}`);
+  
+  // Create write stream to temporary file
+  const writeStream = createWriteStream(tempFilePath, { encoding: 'utf8' });
+  
+  // Create format-specific transform stream
+  const formatTransform = createFormatTransform(format);
+  
+  // Connect the transform to the write stream
+  formatTransform.pipe(writeStream);
+  
+  // Use cursor for memory-efficient processing
   const cursor = Task.find(query).sort(sort).cursor();
   
-  let processedTasks = [];
   let processed = 0;
   
-  // Before processing tasks, send the initial progress update
-  console.log(`[Worker] Starting export of ${totalCount} tasks for job ${jobId}`);
+  // Send initial progress update
   parentPort.postMessage({
     type: 'progress',
     jobId,
@@ -192,25 +209,24 @@ async function processExportTask(data) {
     totalItems: totalCount
   });
   
-  // For small exports with few items, create artificial progress points to make it visible
-  const progressPoints = Math.max(10, totalCount);
-  const reportEveryNth = Math.max(1, Math.floor(totalCount / progressPoints));
+  // Progress reporting configuration
+  const reportEveryNth = Math.max(1, Math.floor(totalCount / 100)); // Report every 1%
   
-  // Process each task individually for maximum progress granularity
+  // Process each task with streaming
   for (let task = await cursor.next(); task != null; task = await cursor.next()) {
-    // Add task to processed list
-    processedTasks.push(task);
+    // Stream task directly to file (no memory accumulation)
+    formatTransform.write(task);
     processed++;
     
-    // Calculate real progress percentage - ensure it's at least 1% after processing starts
-    const progress = processed === 1 ? 1 : Math.floor((processed / totalCount) * 100);
+    // Calculate progress
+    const progress = totalCount > 0 ? Math.floor((processed / totalCount) * 100) : 100;
     
-    // Send progress update for EVERY item or at specific intervals for large exports
+    // Send progress updates
     const shouldReport = processed === 1 || processed === totalCount || 
-                        processed % reportEveryNth === 0 || progress % 10 === 0;
+                        processed % reportEveryNth === 0;
     
     if (shouldReport) {
-      console.log(`[Worker] Export progress: ${progress}% (${processed}/${totalCount})`);
+      console.log(`[Worker] Streaming progress: ${progress}% (${processed}/${totalCount})`);
       parentPort.postMessage({
         type: 'progress',
         jobId,
@@ -219,38 +235,32 @@ async function processExportTask(data) {
         processedItems: processed,
         totalItems: totalCount
       });
-      
-      // Add a small delay to make progress updates more visible in the UI
-      // This is only for development/demo purposes to simulate longer processing time
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    // Check for pause or cancellation from database
-    if (jobId) {
+    // Check for job control (pause/cancel)
+    if (jobId && processed % 10 === 0) { // Check every 10 items to reduce DB calls
       const ExportJob = (await import('../models/ExportJob.js')).default;
       const currentJob = await ExportJob.findById(jobId);
       
       if (currentJob) {
-        // If cancelled, stop processing
         if (currentJob.cancelled) {
+          // Cleanup and throw error
+          formatTransform.end();
+          writeStream.end();
+          fs.unlinkSync(tempFilePath);
           throw new Error('Job cancelled by user');
         }
         
-        // If paused, wait until resumed
+        // Handle pause
         while (currentJob.paused) {
           await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Refresh job state from database by re-fetching
           const refreshedJob = await ExportJob.findById(jobId);
-          if (!refreshedJob) {
-            throw new Error('Job not found during pause check');
-          }
-          
-          // Update current job reference
+          if (!refreshedJob) throw new Error('Job not found during pause check');
           Object.assign(currentJob, refreshedJob.toObject());
-          
-          // Check for cancellation during pause
           if (currentJob.cancelled) {
+            formatTransform.end();
+            writeStream.end();
+            fs.unlinkSync(tempFilePath);
             throw new Error('Job cancelled while paused');
           }
         }
@@ -258,15 +268,22 @@ async function processExportTask(data) {
     }
   }
   
-  // Close cursor to free resources
+  // Close cursor and finish streaming
   await cursor.close();
+  formatTransform.end();
   
-  // Generate file content (this might take time for large exports)
-  console.log(`[Worker] Generating ${format} file for ${processed} tasks`);
-  const fileContent = generateFileContent(processedTasks, format);
+  // Wait for file writing to complete
+  await new Promise((resolve, reject) => {
+    writeStream.on('finish', resolve);
+    writeStream.on('error', reject);
+  });
   
-  // Clear processed tasks from memory to prevent accumulation
-  processedTasks = null;
+  // Read the completed file content
+  console.log(`[Worker] Reading completed export file: ${tempFilePath}`);
+  const fileContent = fs.readFileSync(tempFilePath, 'utf8');
+  
+  // Clean up temporary file
+  fs.unlinkSync(tempFilePath);
   
   // Validate format and create filename
   let actualFormat = format;
@@ -345,70 +362,95 @@ function buildQueryFromFilters(filters) {
   return query;
 }
 
-// Note: processTasks function removed since we now handle processing 
-// directly in processExportTask for more granular updates
-
 /**
- * Generate file content in the specified format
- * @param {Array} tasks - Tasks to include in the file
- * @param {string} format - File format (csv or json)
- * @returns {string} File content
+ * Create a format-specific transform stream for streaming exports
+ * @param {string} format - Export format (csv or json)
+ * @returns {Transform} Transform stream for the specified format
  */
-function generateFileContent(tasks, format) {
-  console.log(`[Worker] Generating file content in format: ${format}`);
+function createFormatTransform(format) {
   if (format === 'csv') {
-    console.log(`[Worker] Generating CSV content`);
-    return generateCSV(tasks);
+    return createCsvTransform();
   } else if (format === 'json') {
-    console.log(`[Worker] Generating JSON content`);
-    return generateJSON(tasks);
+    return createJsonTransform();
   } else {
     throw new Error(`Unsupported export format: ${format}`);
   }
 }
 
 /**
- * Generate CSV content from tasks
- * @param {Array} tasks - Tasks to include in the CSV
- * @returns {string} CSV content
+ * Create a CSV transform stream
+ * @returns {Transform} CSV transform stream
  */
-function generateCSV(tasks) {
-  // Create CSV content
+function createCsvTransform() {
   const headers = ['ID', 'Title', 'Description', 'Status', 'Priority', 'Created At', 'Updated At', 'Completed At'];
-  const rows = [];
-  
-  // Process each task
-  for (const task of tasks) {
-    rows.push([
-      task._id,
-      task.title,
-      task.description || '',
-      task.status,
-      task.priority,
-      task.createdAt,
-      task.updatedAt,
-      task.completedAt || ''
-    ]);
-  }
-  
-  // Finalize CSV content
-  return [
-    headers.join(','), 
-    ...rows.map(row => 
-      row.map(cell => `"${String(cell).replace(/"/g, '""')}"`)
-        .join(',')
-    )
-  ].join('\n');
+  let isFirstRow = true;
+
+  return new Transform({
+    objectMode: true,
+    transform(task, encoding, callback) {
+      try {
+        // Add headers on first row
+        const headerRow = isFirstRow ? headers.join(',') + '\n' : '';
+        isFirstRow = false;
+
+        // Format task data
+        const row = [
+          task._id,
+          task.title || '',
+          task.description || '',
+          task.status || '',
+          task.priority || '',
+          task.createdAt || '',
+          task.updatedAt || '',
+          task.completedAt || ''
+        ]
+          .map(cell => `"${String(cell).replace(/"/g, '""')}"`)
+          .join(',');
+
+        callback(null, headerRow + row + '\n');
+      } catch (error) {
+        callback(error);
+      }
+    }
+  });
 }
 
 /**
- * Generate JSON content from tasks
- * @param {Array} tasks - Tasks to include in the JSON
- * @returns {string} JSON content
+ * Create a JSON transform stream
+ * @returns {Transform} JSON transform stream
  */
-function generateJSON(tasks) {
-  console.log('[Worker] JSON format requested, generating JSON string');
-  return JSON.stringify(tasks, null, 2);
+function createJsonTransform() {
+  let isFirstTask = true;
+
+  return new Transform({
+    objectMode: true,
+    transform(task, encoding, callback) {
+      try {
+        // Start array on first task
+        const prefix = isFirstTask ? '[' : '';
+        isFirstTask = false;
+
+        // Format task as JSON
+        const taskJson = JSON.stringify(task);
+        
+        // Add comma separator for all but first task
+        const separator = prefix ? '' : ',';
+
+        callback(null, prefix + separator + taskJson);
+      } catch (error) {
+        callback(error);
+      }
+    },
+    flush(callback) {
+      // Close JSON array
+      if (isFirstTask) {
+        // No tasks processed
+        callback(null, '[]');
+      } else {
+        callback(null, ']');
+      }
+    }
+  });
 }
 
 // Worker initialization complete

@@ -5,6 +5,7 @@
 
 import AnalyticsService from '../services/analyticsService.js';
 import ExportHandler from './exportHandler.js';
+import ExportService from '../services/exportService.js';
 
 /**
  * Handles Socket.IO connections and real-time events
@@ -19,6 +20,10 @@ class SocketHandlers {
     this.io = io;
     this.exportHandler = new ExportHandler(io, this.broadcastNotification.bind(this), this.broadcastAnalyticsUpdate.bind(this));
     this.jobStateManager = this.exportHandler.jobStateManager; // Make jobStateManager available
+    
+    // Connect ExportService to JobStateManager for direct notifications
+    ExportService.setJobStateManager(this.jobStateManager);
+    
     this.setupEventHandlers();
   }
 

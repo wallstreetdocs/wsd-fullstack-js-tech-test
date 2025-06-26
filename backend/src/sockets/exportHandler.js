@@ -29,11 +29,7 @@ class ExportHandler extends EventEmitter {
     this.jobStateManager = new JobStateManager(io);
     this.setupJobQueueListeners();
     
-    // Forward events from this handler to the ExportService
-    this.on('job-completed', (completionData) => {
-      // Forward to ExportService's job-completed event handlers
-      ExportService.emit('job-completed', completionData);
-    });
+    // Simplified event handling - no forwarding needed
   }
 
   /**
@@ -42,7 +38,7 @@ class ExportHandler extends EventEmitter {
    */
   registerHandlers(socket) {
 
-    // Handle export job requests
+    // Handle export job requests -- REMOVE
     socket.on('export:start', async (data) => {
       try {
         const { format, filters } = data;
@@ -361,65 +357,8 @@ class ExportHandler extends EventEmitter {
       }
     });
     
-    // Listen for worker thread status updates
-    workerPool.on('task-status', async (statusData) => {
-      if (statusData && statusData.jobId) {
-        try {
-          // Use centralized state manager for all status updates
-          await this.jobStateManager.updateJobState(statusData.jobId, {
-            status: statusData.status,
-            progress: statusData.progress,
-            processedItems: statusData.processedItems,
-            totalItems: statusData.totalItems
-          }, 'worker-status');
-        } catch (error) {
-          console.error('Error handling worker status update:', error);
-        }
-      }
-    });
-    
-    // Listen for ExportService progress events 
-    ExportService.on('task-progress', async (progressData) => {
-      if (progressData && progressData.jobId) {
-        try {
-          // Use centralized state manager for all ExportService progress updates
-          await this.jobStateManager.updateProgress(
-            progressData.jobId,
-            progressData.progress || 0,
-            progressData.processedItems || 0,
-            progressData.totalItems || 0,
-            'export-service-progress'
-          );
-        } catch (error) {
-          console.error('Error handling ExportService progress update:', error);
-        }
-      }
-    });
-    
-    // Listen for ExportService completion events
-    ExportService.on('job-completed', async (completionData) => {
-      try {
-        const { jobId, filename, format } = completionData;
-        
-        console.log(`ExportService completed event for job ${jobId}, filename: ${filename}`);
-        
-        const job = await ExportService.getExportJob(jobId);
-        if (job) {
-          const totalItems = job.totalItems || job.processedItems || 0;
-          
-          // Use centralized state manager for completion
-          await this.jobStateManager.completeJob(jobId, filename, totalItems, 'export-service');
-          
-          // Broadcast notification
-          this.notificationCallback(
-            `Export completed: ${filename}`,
-            'success'
-          );
-        }
-      } catch (error) {
-        console.error('Error handling ExportService completion event:', error);
-      }
-    });
+    // Removed duplicate event listeners - ExportService no longer emits events
+    // JobStateManager handles all status broadcasting directly
   }
 
   /**

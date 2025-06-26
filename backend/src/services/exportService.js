@@ -19,7 +19,17 @@ import crypto from 'crypto';
 class ExportService extends EventEmitter {
   constructor() {
     super();
+    this.jobStateManager = null; // Will be set by socket handlers
     this.initializeJobProcessing();
+  }
+  
+  /**
+   * Set the job state manager for status broadcasting
+   * @param {JobStateManager} jobStateManager - Job state manager instance
+   */
+  setJobStateManager(jobStateManager) {
+    this.jobStateManager = jobStateManager;
+    console.log('[ExportService] JobStateManager connected');
   }
 
   /**
@@ -99,29 +109,11 @@ class ExportService extends EventEmitter {
       // When we load from cache often times it's too fast
       // so for visuals we do some timeouts to artificially show progress
       if (cachedResult) {
+        console.log("EVALDAS - CACHED RESULT")
         const cachedData = JSON.parse(cachedResult);
         
-        // Send a progress update with 0% first to initialize UI correctly
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: 0,
-          processedItems: 0,
-          totalItems: cachedData.totalItems
-        });
-        
-        // Small delay to ensure first update is processed
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        // Then send an update showing 50% progress
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: 50,
-          processedItems: Math.floor(cachedData.totalItems / 2),
-          totalItems: cachedData.totalItems
-        });
-        
-        // Small delay to ensure updates are seen
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay to simulate processing time for better UX
+        await new Promise(resolve => setTimeout(resolve, 150));
         
         // Handle different cache storage types
         if (cachedData.storageType === 'tempFile') {
@@ -147,22 +139,7 @@ class ExportService extends EventEmitter {
           await job.save();
         }
         
-        // Send final progress update
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: 100,
-          processedItems: cachedData.totalItems,
-          totalItems: cachedData.totalItems
-        });
-        
-        // Emit completion event via the job queue for real-time updates
-        jobQueue.emit('job-completed', { 
-          id: job._id.toString(), 
-          data: { 
-            filename: cachedData.filename, 
-            format: job.format 
-          } 
-        });
+        // Job completion is handled by database state - no events needed
         
         // Complete the job in the queue
         callback({
@@ -189,15 +166,21 @@ class ExportService extends EventEmitter {
       
       // For very large exports, use streaming with temp file storage
       if (useStreamingWithTempFile) {
-        
-        // Create progress tracking function
+        console.log("EVALDAS - STREAMING WITH TEMP FILE")
+        // Create progress tracking function for large exports
         const progressCallback = (progress, processedItems, totalItems) => {
-          this.emit('task-progress', {
-            jobId: job._id.toString(),
-            progress,
-            processedItems,
-            totalItems
-          });
+          // Update progress through JobStateManager if available
+          if (this.jobStateManager) {
+            this.jobStateManager.updateProgress(
+              job._id.toString(),
+              progress,
+              processedItems,
+              totalItems,
+              'export-stream-progress'
+            ).catch(error => {
+              console.error('[ExportService] Error updating progress:', error);
+            });
+          }
         };
         
         // Create temp file path
@@ -236,14 +219,7 @@ class ExportService extends EventEmitter {
         // Cache the temp file path and metadata
         await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
         
-        // Emit completion event
-        jobQueue.emit('job-completed', { 
-          id: job._id.toString(), 
-          data: { 
-            filename, 
-            format: job.format 
-          } 
-        });
+        // Job completion is handled by database state - no events needed
         
         // Complete the job in the queue
         callback({
@@ -256,6 +232,7 @@ class ExportService extends EventEmitter {
           }
         });
       } else {
+        console.log("EVALDAS - BUFFER RESULTS WORKER POOL")
         // For smaller exports, use the worker pool with buffer storage
         console.log(`[ExportService] Standard export (est. ${estimatedSize} bytes), using worker pool`);
         
@@ -289,14 +266,7 @@ class ExportService extends EventEmitter {
         // Cache the result for future identical exports
         await this.cacheBufferResult(cacheKey, totalCount, resultBuffer, filename);
         
-        // Emit completion event AFTER job is saved
-        jobQueue.emit('job-completed', { 
-          id: job._id.toString(), 
-          data: { 
-            filename, 
-            format: job.format 
-          } 
-        });
+        // Job completion is handled by database state - no events needed
         
         // Complete the job in the queue
         callback({
@@ -333,7 +303,7 @@ class ExportService extends EventEmitter {
   }
 
   /**
-   * Create a new export job with size-based decision making
+   * Create a new export job for background processing
    * @param {Object} params - Export parameters
    * @param {string} params.format - Export format ('csv' or 'json')
    * @param {Object} params.filters - Filter parameters
@@ -348,80 +318,36 @@ class ExportService extends EventEmitter {
     
     const { filters, clientId } = params;
     
-    // Build query to check export size
+    // Build query to get export size
     const query = streamExportService.buildQueryFromFilters(filters);
     
-    // SIMPLIFIED: Get the actual count right at the beginning
+    // Get count of documents which match the query
     const totalCount = await Task.countDocuments(query);
     
-    // Check if this is a small export that can be processed directly
-    const isSmallExport = totalCount <= exportConfig.directExportTaskLimit;
-    
-    // Create the export job with the actual count
+    // Create the export job - all exports now use background processing
     const exportJob = new ExportJob({
       format: validatedFormat,
       filters,
       clientId,
       status: 'pending',
-      processingType: isSmallExport ? 'direct' : 'background',
-      totalItems: totalCount, // Set the actual count
-      processedItems: 0       // Start at 0 processed
+      totalItems: totalCount,
+      processedItems: 0
     });
     
     await exportJob.save();
     
-    if (!isSmallExport) {
-      // Add job to the queue for background processing
-      await jobQueue.addJob(
-        exportJob._id.toString(),
-        'exportTasks',
-        {
-          format: validatedFormat,
-          filters,
-          clientId
-        }
-      );
-    } else {
-      // For small exports, we can process them immediately
-      // This will be handled by the API route
-    }
+    // Add job to the queue for background processing
+    await jobQueue.addJob(
+      exportJob._id.toString(),
+      'exportTasks',
+      {
+        format: validatedFormat,
+        filters,
+        clientId
+      }
+    );
     
     return exportJob;
-  }
-
-  /**
-   * Check if an export is small enough to process directly
-   * @param {Object} query - MongoDB query object
-   * @returns {Promise<boolean>} True if the export is small
-   */
-  async isSmallExport(query) {
-    const count = await Task.countDocuments(query);
-    return count <= exportConfig.directExportTaskLimit;
-  }
-  
-  /**
-   * Estimate the number of items that will be exported
-   * @param {Object} exportJob - Export job with filters
-   * @returns {Promise<number>} Estimated item count
-   */
-  async estimateExportSize(exportJob) {
-    try {
-      // Import streamExportService if not available
-      const streamExportService = await import('./streamExportService.js').then(m => m.default);
-      
-      // Build query from job filters using streamExportService
-      const query = streamExportService.buildQueryFromFilters(exportJob.filters || {});
-      
-      // Count tasks matching our query
-      const count = await Task.countDocuments(query);
-      
-      // Return the actual count
-      return count;
-    } catch (error) {
-      console.error('[ExportService] Error estimating export size:', error);
-      // Instead of returning 0, throw the error so callers can handle it properly
-      throw new Error(`Failed to estimate export size: ${error.message}`);
-    }
   }
 
   /**
@@ -440,123 +366,6 @@ class ExportService extends EventEmitter {
     return (count * avgSizePerTask) + overhead;
   }
 
-  /**
-   * Process a small export directly
-   * @param {Object} job - Export job document
-   * @param {Object} res - Express response object (if streaming directly)
-   * @returns {Promise<Object>} Export result data
-   */
-  async processSmallExportDirectly(job, res = null) {
-    try {
-      const query = streamExportService.buildQueryFromFilters(job.filters);
-      const sort = streamExportService.buildSortFromFilters(job.filters);
-      const format = job.format;
-      
-      // Count total tasks
-      const totalCount = await Task.countDocuments(query);
-      
-      // Make sure we never have zero count for UI display
-      // Always use at least 1 for empty datasets
-      const safeCount = Math.max(totalCount, 1);
-      
-      console.log(`[ExportService] Processing ${safeCount} items for direct export`);
-      
-      // Always update the job with the correct total count
-      job.totalItems = safeCount;
-      job.processedItems = 0; // Start at 0
-      job.status = 'processing';
-      await job.save();
-      
-      // Send initial progress update
-      this.emit('task-progress', {
-        jobId: job._id.toString(),
-        progress: 0,
-        processedItems: 0,
-        totalItems: safeCount
-      });
-      
-      // Create progress callback that updates the job
-      const progressCallback = (progress, processedItems, totalItems) => {
-        // Always use the safe count
-        const updatedProgress = Math.min(progress, 100);
-        const updatedProcessed = Math.min(processedItems, safeCount);
-        
-        // For direct exports, we still want to track progress properly
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: updatedProgress,
-          processedItems: updatedProcessed,
-          totalItems: safeCount
-        });
-      };
-      
-      // If we have a response object, stream directly to it
-      if (res) {
-        // Stream directly to response
-        const result = await streamExportService.streamToResponse(
-          res, query, sort, format, progressCallback
-        );
-        
-        // Update job with streaming info and correct item count
-        job.totalItems = safeCount;
-        job.processedItems = safeCount; // Completed, so processed = total
-        await job.markAsStreaming(result.filename);
-        
-        // Send final progress update
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: 100,
-          processedItems: safeCount,
-          totalItems: safeCount
-        });
-        
-        return {
-          success: true,
-          streaming: true,
-          filename: result.filename,
-          totalCount: safeCount
-        };
-      } else {
-        // Otherwise stream to buffer
-        const { buffer, filename } = await streamExportService.streamToBuffer(
-          query, sort, format, progressCallback
-        );
-        
-        // Update job with buffer result and correct item count
-        job.totalItems = safeCount;
-        job.processedItems = safeCount; // Completed, so processed = total
-        await job.complete(buffer, filename);
-        job.fileSize = buffer.length;
-        job.storageType = 'buffer';
-        await job.save();
-        
-        // Send final progress update to ensure UI reflects completion
-        this.emit('task-progress', {
-          jobId: job._id.toString(),
-          progress: 100,
-          processedItems: safeCount,
-          totalItems: safeCount
-        });
-        
-        // Cache the result
-        const cacheKey = this.generateCacheKey(job);
-        await this.cacheBufferResult(cacheKey, safeCount, buffer, filename);
-        
-        return {
-          success: true,
-          streaming: false,
-          filename: filename,
-          totalCount: safeCount,
-          buffer: buffer
-        };
-      }
-    } catch (error) {
-      console.error('[ExportService] Error in processSmallExportDirectly:', error);
-      // Update job status to failed
-      await job.fail(error);
-      throw error;
-    }
-  }
 
   /**
    * Generate a cache key for an export job based on its parameters
@@ -762,15 +571,18 @@ class ExportService extends EventEmitter {
         const totalCount = await Task.countDocuments(query);
         const displayCount = Math.max(totalCount, 1);
         
-        // Create a proper progress callback that emits completion
+        // Progress callback for stream recreation
         const progressCallback = (progress, processedItems, totalItems) => {
-          // Only emit final progress to ensure clean display
-          if (progress === 100) {
-            this.emit('task-progress', {
-              jobId: job._id.toString(),
-              progress: 100,
-              processedItems: displayCount,
-              totalItems: displayCount
+          // Update progress through JobStateManager if available
+          if (this.jobStateManager && progress === 100) {
+            this.jobStateManager.updateProgress(
+              job._id.toString(),
+              progress,
+              processedItems,
+              totalItems,
+              'export-restream-progress'
+            ).catch(error => {
+              console.error('[ExportService] Error updating progress:', error);
             });
           }
         };
@@ -802,15 +614,13 @@ class ExportService extends EventEmitter {
     }
     
     if (job.status === 'processing') {
-      // Signal the worker to pause if it's a background job
-      if (job.processingType === 'background') {
-        try {
-          console.log(`[ExportService] Signaling worker to pause job ${jobId}`);
-          await workerPool.controlWorker(jobId, 'pause');
-        } catch (error) {
-          console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-          // Worker signaling failed but state will be updated by JobStateManager
-        }
+      // Signal the worker to pause - all jobs are now background jobs
+      try {
+        console.log(`[ExportService] Signaling worker to pause job ${jobId}`);
+        await workerPool.controlWorker(jobId, 'pause');
+      } catch (error) {
+        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
+        // Worker signaling failed but state will be updated by JobStateManager
       }
     }
     
@@ -829,27 +639,24 @@ class ExportService extends EventEmitter {
     }
     
     if (job.status === 'paused') {
-      // For background jobs, try to signal the worker directly first
-      if (job.processingType === 'background') {
-        try {
-          console.log(`[ExportService] Signaling worker to resume job ${jobId}`);
-          const controlResult = await workerPool.controlWorker(jobId, 'resume');
-          
-          if (controlResult) {
-            console.log(`[ExportService] Worker successfully resumed for job ${jobId}`);
-            // If worker was successfully signaled, we don't need to re-queue
-            return job;
-          } else {
-            console.warn(`[ExportService] Worker control failed for job ${jobId}, will try re-queueing`);
-          }
-        } catch (error) {
-          console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-          // Continue to re-queue as fallback
+      // Try to signal the worker directly first - all jobs are now background jobs
+      try {
+        console.log(`[ExportService] Signaling worker to resume job ${jobId}`);
+        const controlResult = await workerPool.controlWorker(jobId, 'resume');
+        
+        if (controlResult) {
+          console.log(`[ExportService] Worker successfully resumed for job ${jobId}`);
+          // If worker was successfully signaled, we don't need to re-queue
+          return job;
+        } else {
+          console.warn(`[ExportService] Worker control failed for job ${jobId}, will try re-queueing`);
         }
+      } catch (error) {
+        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
+        // Continue to re-queue as fallback
       }
       
-      // If direct worker signaling failed or this is not a background job,
-      // re-add the job to the queue
+      // If direct worker signaling failed, re-add the job to the queue
       console.log(`[ExportService] Re-queueing paused job ${jobId}`);
       await jobQueue.addJob(
         job._id.toString(),
@@ -878,21 +685,19 @@ class ExportService extends EventEmitter {
     }
     
     if (job.status === 'processing' || job.status === 'paused') {
-      // Signal the worker to cancel if it's a background job
-      if (job.processingType === 'background') {
-        try {
-          console.log(`[ExportService] Signaling worker to cancel job ${jobId}`);
-          const controlResult = await workerPool.controlWorker(jobId, 'cancel');
-          
-          if (controlResult) {
-            console.log(`[ExportService] Worker successfully cancelled for job ${jobId}`);
-          } else {
-            console.warn(`[ExportService] Worker control failed for job ${jobId}, but state will be updated by JobStateManager`);
-          }
-        } catch (error) {
-          console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-          // Worker signaling failed but state will be updated by JobStateManager
+      // Signal the worker to cancel - all jobs are now background jobs
+      try {
+        console.log(`[ExportService] Signaling worker to cancel job ${jobId}`);
+        const controlResult = await workerPool.controlWorker(jobId, 'cancel');
+        
+        if (controlResult) {
+          console.log(`[ExportService] Worker successfully cancelled for job ${jobId}`);
+        } else {
+          console.warn(`[ExportService] Worker control failed for job ${jobId}, but state will be updated by JobStateManager`);
         }
+      } catch (error) {
+        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
+        // Worker signaling failed but state will be updated by JobStateManager
       }
       
       // Remove job from queue if it exists there

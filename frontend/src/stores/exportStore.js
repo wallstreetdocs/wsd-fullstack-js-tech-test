@@ -278,20 +278,13 @@ export const useExportStore = defineStore('exports', () => {
     if (!jobId) return
 
     try {
-      // Check if this is a temporary ID from a connection error
-      if (jobId.startsWith('pending-')) {
-        console.log('Retrying export with new connection')
-        
         // Start a completely new export with the same parameters
         const format = exportProgress.format || 'csv'
         const filters = exportProgress.filters || {}
         
         // Start a new export (this will reset progress automatically)
         await exportTasks(format, filters)
-      } else {
-        // Use the socket to retry an existing export
-        socket.emit('export:retry', { jobId })
-      }
+
     } catch (err) {
       console.error('Error retrying export:', err)
       

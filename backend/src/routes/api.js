@@ -342,123 +342,33 @@ router.get('/analytics', async (req, res, next) => {
  * @param {string} [req.body.filters.completedBefore] - Filter tasks completed before date
  * @param {number} [req.body.filters.estimatedTimeLt] - Filter tasks with estimated time less than value
  * @param {number} [req.body.filters.estimatedTimeGte] - Filter tasks with estimated time greater than or equal to value
- * @param {boolean} [req.body.streamDirectly] - If true, stream the response directly (for small exports)
- * @returns {Object} Export job metadata or streamed file
+ * @returns {Object} Export job metadata for background processing
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
-    const { format, filters, streamDirectly } = req.body;
+    const { format, filters } = req.body;
     
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
 
-    console.log(`Export request - original format: '${format}''`);
+    console.log(`Export request - format: '${validatedFormat}'`);
     
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
       format: validatedFormat,
       filters
     });
-    console.log("EXPORT JOB CREATED ????????????????? ", exportJob._id)
+    
     console.log('Export job created:', { 
       jobId: exportJob._id, 
-      format: validatedFormat, 
-      processingType: exportJob.processingType 
+      format: validatedFormat
     });
     
-    // For small exports that can be processed directly
-    if (exportJob.processingType === 'direct') {
-      // If client requested direct streaming, do it now
-      if (streamDirectly === true) {
-        console.log(`Streaming export directly to client for job ${exportJob._id}`);
-        
-        // Set appropriate content type and filename
-        const contentType = validatedFormat === 'json' ? 'application/json' : 'text/csv';
-        const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${validatedFormat}`;
-        
-        // Send streaming response headers
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-        
-        try {
-          // Process and stream directly to response
-          await ExportService.processSmallExportDirectly(exportJob, res);
-        } catch (streamError) {
-          console.error(`Error streaming export directly: ${streamError.message}`);
-          // If streaming fails, return an error response
-          if (!res.headersSent) {
-            res.status(500).json({
-              success: false,
-              error: 'Error processing export'
-            });
-          }
-        }
-        
-        // The response has already been handled by the streaming process
-        return;
-      } else {
-        try {
-          // Process the export immediately but don't stream directly
-          console.log(`Processing small export job ${exportJob._id} immediately`);
-          const result = await ExportService.processSmallExportDirectly(exportJob);
-          
-          // Use JobStateManager to handle completion - this will ensure proper event emission
-          const itemCount = Math.max(result.totalCount || 1, 1);
-          if (socketHandlers && socketHandlers.jobStateManager) {
-            await socketHandlers.jobStateManager.completeJob(
-              exportJob._id.toString(),
-              result.filename,
-              itemCount,
-              'api-direct'
-            );
-            
-            // Still broadcast notification for user feedback
-            socketHandlers.broadcastNotification(
-              `Export completed: ${validatedFormat.toUpperCase()} export`,
-              'success'
-            );
-          } else {
-            // Fallback if jobStateManager not available
-            await ExportJob.findByIdAndUpdate(exportJob._id, {
-              status: 'completed',
-              progress: 100,
-              processedItems: itemCount,
-              totalItems: itemCount
-            });
-          }
-          
-          // Return job metadata with completed status
-          res.status(200).json({
-            success: true,
-            data: {
-              jobId: exportJob._id,
-              status: 'completed',
-              processingType: 'direct',
-              filename: result.filename
-            },
-            message: 'Export completed successfully'
-          });
-        } catch (exportError) {
-          console.error(`Error processing small export: ${exportError.message}`);
-          res.status(500).json({
-            success: false,
-            error: 'Error processing export'
-          });
-        }
-        
-        // NOTE: Socket notifications are handled in the try block above
-        // We don't need additional socket notifications here since headers have already been sent
-        
-        return;
-      }
-    }
-    
-    // For larger exports, use background processing as before
+    // All exports now use background processing for consistency and scalability
     res.status(202).json({
       success: true,
       data: {
         jobId: exportJob._id,
-        status: exportJob.status,
-        processingType: exportJob.processingType
+        status: exportJob.status
       },
       message: 'Export job created and queued for processing'
     });

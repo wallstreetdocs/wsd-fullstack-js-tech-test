@@ -163,25 +163,6 @@ class StreamExportService {
   }
 
   /**
-   * Count the number of tasks that match a query
-   * @param {Object} query - MongoDB query object
-   * @returns {Promise<number>} Count of matching tasks
-   */
-  async countTasks(query) {
-    return Task.countDocuments(query);
-  }
-
-  /**
-   * Check if a direct export is possible based on task count
-   * @param {Object} query - MongoDB query object
-   * @returns {Promise<boolean>} True if direct export is possible
-   */
-  async isDirectExportPossible(query) {
-    const count = await this.countTasks(query);
-    return count <= exportConfig.directExportTaskLimit;
-  }
-
-  /**
    * Stream tasks directly to response
    * @param {Object} res - Express response object
    * @param {Object} query - MongoDB query object
@@ -365,6 +346,20 @@ class StreamExportService {
     const sort = {};
     sort[filters.sortBy || 'createdAt'] = filters.sortOrder === 'asc' ? 1 : -1;
     return sort;
+  }
+
+  /**
+   * Count total tasks matching the query
+   * @param {Object} query - MongoDB query object
+   * @returns {Promise<number>} Total count of matching tasks
+   */
+  async countTasks(query) {
+    try {
+      return await Task.countDocuments(query);
+    } catch (error) {
+      console.error('Error counting tasks:', error);
+      throw error;
+    }
   }
 }
 
