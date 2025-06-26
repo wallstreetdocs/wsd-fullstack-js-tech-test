@@ -26,6 +26,11 @@
         <v-icon left>mdi-code-json</v-icon>
         Export JSON
       </v-btn>
+      <!-- Export History Button -->
+      <v-btn class="ml-2" color="info" @click="showExportHistory = true">
+        <v-icon left>mdi-history</v-icon>
+        Export History
+      </v-btn>
     </div>
 
     <v-card class="mb-4">
@@ -166,6 +171,52 @@
       </v-card>
     </v-dialog>
 
+    <!-- Export History Dialog -->
+    <v-dialog v-model="showExportHistory" max-width="800">
+      <v-card>
+        <v-card-title>
+          Export History
+          <v-spacer></v-spacer>
+          <v-btn icon @click="showExportHistory = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text>
+          <v-data-table
+            :headers="exportHistoryHeadersWithDownload"
+            :items="exportHistory"
+            :loading="exportHistoryLoading"
+            class="elevation-1"
+            :items-per-page="5"
+          >
+            <template #item.status="{ item }">
+              <v-chip :color="getExportStatusColor(item.status)" small>{{ item.status }}</v-chip>
+            </template>
+            <template #item.requestedAt="{ item }">
+              {{ formatDate(item.requestedAt) }}
+            </template>
+            <template #item.completedAt="{ item }">
+              {{ item.completedAt ? formatDate(item.completedAt) : '-' }}
+            </template>
+            <template #item.error="{ item }">
+              <span v-if="item.status === 'failed'" class="text-error">{{ item.error }}</span>
+            </template>
+            <template #item.download="{ item }">
+              <v-btn
+                v-if="item.status === 'completed'"
+                icon
+                size="small"
+                @click="downloadExport(item._id, item.format)"
+                :title="`Download ${item.format.toUpperCase()}`"
+              >
+                <v-icon>mdi-download</v-icon>
+              </v-btn>
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
       {{ snackbar.text }}
     </v-snackbar>
@@ -173,7 +224,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
 import apiClient from '../api/client.js'
@@ -187,6 +238,7 @@ const taskStore = useTaskStore()
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
+const showExportHistory = ref(false)
 const selectedTask = ref(null)
 const dateMenu = ref(false)
 const showAdvanced = ref(false)
@@ -397,6 +449,86 @@ async function exportTasks(format) {
     }
   }
 }
+
+const exportHistory = ref([])
+const exportHistoryLoading = ref(false)
+const exportHistoryHeaders = [
+  { text: 'Requested At', value: 'requestedAt' },
+  { text: 'Completed At', value: 'completedAt' },
+  { text: 'Format', value: 'format' },
+  { text: 'Status', value: 'status' },
+  { text: 'Error', value: 'error' }
+]
+
+const exportHistoryHeadersWithDownload = [
+  { text: 'Requested At', value: 'requestedAt' },
+  { text: 'Completed At', value: 'completedAt' },
+  { text: 'Format', value: 'format' },
+  { text: 'Status', value: 'status' },
+  { text: 'Error', value: 'error' },
+  { text: 'Download', value: 'download', sortable: false }
+]
+
+async function fetchExportHistory() {
+  exportHistoryLoading.value = true
+  try {
+    const res = await fetch(`${apiClient.baseURL}/tasks/export/history`)
+    const data = await res.json()
+    exportHistory.value = data.data?.history || []
+  } catch (e) {
+    exportHistory.value = []
+  }
+  exportHistoryLoading.value = false
+}
+
+async function downloadExport(id, format) {
+  try {
+    const response = await fetch(`${apiClient.baseURL}/tasks/export/${id}/download`, {
+      method: 'GET',
+      headers: {
+        Accept: format === 'csv' ? 'text/csv' : 'application/json'
+      }
+    })
+    if (!response.ok) throw new Error('Download failed')
+
+    // Always use export id as filename
+    const filename = `${id}.${format}`
+
+    const blob = await response.blob()
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    snackbar.value = {
+      show: true,
+      color: 'success',
+      text: `Downloaded export as ${filename}!`
+    }
+  } catch (err) {
+    snackbar.value = {
+      show: true,
+      color: 'error',
+      text: 'Failed to download export.'
+    }
+  }
+}
+
+function getExportStatusColor(status) {
+  switch (status) {
+    case 'completed': return 'success'
+    case 'processing': return 'info'
+    case 'failed': return 'error'
+    default: return 'grey'
+  }
+}
+
+// Watch dialog open to fetch history
+watch(showExportHistory, (val) => {
+  if (val) fetchExportHistory()
+})
 
 onMounted(() => {
   taskStore.fetchTasks()
