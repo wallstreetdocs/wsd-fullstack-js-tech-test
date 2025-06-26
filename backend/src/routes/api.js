@@ -8,11 +8,8 @@ import Task from '../models/Task.js';
 import TaskExport from '../models/TaskExport.js'; // <-- Create this model if not exists
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
-// import { json2csv } from 'json-2-csv';
-import { StreamParser } from '@json2csv/plainjs';
-import { AsyncParser } from '@json2csv/node';
-import fs from 'fs';
-import path from 'path';
+// import fs from 'fs';
+// import path from 'path';
 
 import dayjs from 'dayjs';
 

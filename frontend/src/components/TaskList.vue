@@ -176,19 +176,15 @@
       <v-card>
         <v-card-title>
           Export History
-          <v-spacer></v-spacer>
+          <!-- <v-spacer></v-spacer>
           <v-btn icon @click="showExportHistory = false">
             <v-icon>mdi-close</v-icon>
-          </v-btn>
+          </v-btn> -->
         </v-card-title>
+
         <v-card-text>
-          <v-data-table
-            :headers="exportHistoryHeadersWithDownload"
-            :items="exportHistory"
-            :loading="exportHistoryLoading"
-            class="elevation-1"
-            :items-per-page="5"
-          >
+          <v-data-table :headers="exportHistoryHeadersWithDownload" :items="exportHistory"
+            :loading="exportHistoryLoading" class="elevation-1" :items-per-page="5">
             <template #item.status="{ item }">
               <v-chip :color="getExportStatusColor(item.status)" small>{{ item.status }}</v-chip>
             </template>
@@ -202,18 +198,17 @@
               <span v-if="item.status === 'failed'" class="text-error">{{ item.error }}</span>
             </template>
             <template #item.download="{ item }">
-              <v-btn
-                v-if="item.status === 'completed'"
-                icon
-                size="small"
-                @click="downloadExport(item._id, item.format)"
-                :title="`Download ${item.format.toUpperCase()}`"
-              >
+              <v-btn v-if="item.status === 'completed'" icon size="small" @click="downloadExport(item._id, item.format)"
+                :title="`Download ${item.format.toUpperCase()}`">
                 <v-icon>mdi-download</v-icon>
               </v-btn>
             </template>
           </v-data-table>
         </v-card-text>
+
+        <v-card-actions>
+          <v-btn text="Close" @click="showExportHistory = false"></v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
 
