@@ -13,36 +13,24 @@
 
     <v-row>
       <v-col cols="12" md="3">
-        <metric-card
-          title="Total Tasks"
-          :value="analyticsStore.analytics.totalTasks"
-          icon="mdi-format-list-checks"
-          color="primary"
-        />
+        <metric-card title="Total Tasks" :value="analyticsStore.analytics.totalTasks" icon="mdi-format-list-checks"
+          color="primary" />
+      </v-col>
+      <v-col cols="12" md="2">
+        <metric-card title="Completion Rate" :value="`${analyticsStore.analytics.completionRate}%`"
+          icon="mdi-check-circle" color="success" />
+      </v-col>
+      <v-col cols="12" md="2">
+        <metric-card title="Created Today" :value="analyticsStore.analytics.tasksCreatedToday" icon="mdi-plus-circle"
+          color="info" />
+      </v-col>
+      <v-col cols="12" md="2">
+        <metric-card title="Completed Today" :value="analyticsStore.analytics.tasksCompletedToday" icon="mdi-check-all"
+          color="success" />
       </v-col>
       <v-col cols="12" md="3">
-        <metric-card
-          title="Completion Rate"
-          :value="`${analyticsStore.analytics.completionRate}%`"
-          icon="mdi-check-circle"
-          color="success"
-        />
-      </v-col>
-      <v-col cols="12" md="3">
-        <metric-card
-          title="Created Today"
-          :value="analyticsStore.analytics.tasksCreatedToday"
-          icon="mdi-plus-circle"
-          color="info"
-        />
-      </v-col>
-      <v-col cols="12" md="3">
-        <metric-card
-          title="Completed Today"
-          :value="analyticsStore.analytics.tasksCompletedToday"
-          icon="mdi-check-all"
-          color="success"
-        />
+        <metric-card title="Export History" :value="analyticsStore.analytics.exportHistoryCount" icon="mdi-file-export"
+          color="secondary" />
       </v-col>
     </v-row>
 
@@ -51,10 +39,7 @@
         <v-card class="chart-container equal-height-chart">
           <v-card-title>Tasks by Status</v-card-title>
           <v-card-text>
-            <task-status-chart
-              :data="analyticsStore.statusData"
-              :show-legend="true"
-            />
+            <task-status-chart :data="analyticsStore.statusData" :show-legend="true" />
           </v-card-text>
         </v-card>
       </v-col>

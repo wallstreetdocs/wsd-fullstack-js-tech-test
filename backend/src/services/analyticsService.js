@@ -4,6 +4,7 @@
  */
 
 import Task from '../models/Task.js';
+import TaskExport from '../models/TaskExport.js'; // Add this import at the top
 import { redisClient } from '../config/redis.js';
 
 /**
@@ -56,7 +57,8 @@ class AnalyticsService {
       averageCompletionTime,
       tasksCreatedToday,
       tasksCompletedToday,
-      recentActivity
+      recentActivity,
+      exportHistoryCount // <-- Add this line
     ] = await Promise.all([
       Task.countDocuments(),
       this.getTasksByStatus(),
@@ -65,7 +67,8 @@ class AnalyticsService {
       this.getAverageCompletionTime(),
       this.getTasksCreatedToday(),
       this.getTasksCompletedToday(),
-      this.getRecentActivity()
+      this.getRecentActivity(),
+      TaskExport.countDocuments() // <-- Add this line
     ]);
 
     return {
@@ -77,6 +80,7 @@ class AnalyticsService {
       tasksCreatedToday,
       tasksCompletedToday,
       recentActivity,
+      exportHistoryCount, // <-- Add this line
       lastUpdated: new Date().toISOString()
     };
   }
