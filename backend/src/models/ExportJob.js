@@ -139,38 +139,8 @@ const exportJobSchema = new mongoose.Schema(
   }
 );
 
-// Add method to update progress
-exportJobSchema.methods.updateProgress = function(processedItems, totalItems) {
-  // Validate inputs to prevent NaN
-  const validProcessedItems = Math.max(0, Number(processedItems) || 0);
-  const validTotalItems = Math.max(1, Number(totalItems) || 1); // Ensure at least 1 to prevent division by zero
-  
-  this.processedItems = validProcessedItems;
-  this.totalItems = validTotalItems;
-  this.progress = Math.floor((validProcessedItems / validTotalItems) * 100);
-  return this.save();
-};
 
-// Add method to complete the job
-exportJobSchema.methods.complete = function(result, filename) {
-  this.status = 'completed';
-  this.progress = 100;
-  this.result = result;
-  this.filename = filename;
-  return this.save();
-};
 
-// Add method to complete the job with temp file
-exportJobSchema.methods.completeWithTempFile = function(tempFilePath, filename, fileSize) {
-  this.status = 'completed';
-  this.progress = 100;
-  this.tempFilePath = tempFilePath;
-  this.filename = filename;
-  this.fileSize = fileSize;
-  this.storageType = 'tempFile';
-  this.result = null; // Clear buffer to save memory
-  return this.save();
-};
 
 // Add method to mark job as streaming
 exportJobSchema.methods.markAsStreaming = function(filename) {
@@ -182,33 +152,9 @@ exportJobSchema.methods.markAsStreaming = function(filename) {
   return this.save();
 };
 
-// Add method to mark job as failed
-exportJobSchema.methods.fail = function(error) {
-  this.status = 'failed';
-  this.error = error.message || 'Unknown error';
-  return this.save();
-};
 
-// Add method to pause job
-exportJobSchema.methods.pause = function() {
-  this.status = 'paused';
-  this.paused = true;
-  return this.save();
-};
 
-// Add method to resume job
-exportJobSchema.methods.resume = function() {
-  this.status = 'processing';
-  this.paused = false;
-  return this.save();
-};
 
-// Add method to cancel job
-exportJobSchema.methods.cancel = function() {
-  this.status = 'cancelled';
-  this.cancelled = true;
-  return this.save();
-};
 
 const ExportJob = mongoose.model('ExportJob', exportJobSchema);
 

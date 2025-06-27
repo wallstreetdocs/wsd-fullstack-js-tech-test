@@ -53,7 +53,7 @@ class ExportService extends EventEmitter {
     });
 
     // Set up worker progress event listener
-    workerPool.on('task-progress', (message) => {
+    workerPool.on('job-progress', (message) => {
       if (message && message.jobId) {
         this.handleProgressUpdate(message);
       }
@@ -69,14 +69,15 @@ class ExportService extends EventEmitter {
     const { jobId, progress, processedItems, totalItems } = progressData;
     
     try {
-      // Update job progress in database
-      const job = await ExportJob.findById(jobId);
-      if (job) {
-        await job.updateProgress(processedItems, totalItems);
-        
-      } else {
-        // Job not found - might have been deleted
-        console.log(`[ExportService DEBUG] Progress update for non-existent job: ${jobId}`);
+      // Route all progress updates through JobStateManager
+      if (this.jobStateManager) {
+        await this.jobStateManager.updateProgress(
+          jobId,
+          progress || 0,
+          processedItems || 0,
+          totalItems || 0,
+          'worker-progress'
+        );
       }
     } catch (error) {
       // Error handling is done, no need to log
@@ -92,15 +93,16 @@ class ExportService extends EventEmitter {
     const { id: jobId, data, callback } = jobRequest;
     
     try {
-      // Check if the job exists and update its status
+      // Check if the job exists
       const job = await ExportJob.findById(jobId);
       if (!job) {
         throw new Error(`Export job ${jobId} not found`);
       }
       
-      // Update job status to processing
-      job.status = 'processing';
-      await job.save();
+      // Update job status to processing through JobStateManager
+      if (this.jobStateManager) {
+        await this.jobStateManager.updateProgress(jobId, 0, 0, 0, 'job-processing');
+      }
       
       // Check cache first
       const cacheKey = this.generateCacheKey(job);
@@ -117,26 +119,24 @@ class ExportService extends EventEmitter {
         
         // Handle different cache storage types
         if (cachedData.storageType === 'tempFile') {
-          // Temp file storage
-          job.status = 'completed';
-          job.progress = 100;
-          job.totalItems = cachedData.totalItems;
-          job.processedItems = cachedData.totalItems;
+          // Temp file storage - update through JobStateManager
           job.tempFilePath = cachedData.tempFilePath;
           job.filename = cachedData.filename;
           job.fileSize = cachedData.fileSize;
           job.storageType = 'tempFile';
           await job.save();
+          if (this.jobStateManager) {
+            await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
+          }
         } else {
-          // Standard buffer storage
-          job.status = 'completed';
-          job.progress = 100;
-          job.totalItems = cachedData.totalItems;
-          job.processedItems = cachedData.totalItems;
+          // Standard buffer storage - update through JobStateManager
           job.result = Buffer.from(cachedData.result, 'base64');
           job.filename = cachedData.filename;
           job.storageType = 'buffer';
           await job.save();
+          if (this.jobStateManager) {
+            await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
+          }
         }
         
         // Job completion is handled by database state - no events needed
@@ -213,8 +213,15 @@ class ExportService extends EventEmitter {
         // Generate filename
         const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
         
-        // Update job with temp file info
-        await job.completeWithTempFile(tempFilePath, filename, fileSize);
+        // Update job with temp file info - route through JobStateManager
+        job.tempFilePath = tempFilePath;
+        job.filename = filename;
+        job.fileSize = fileSize;
+        job.storageType = 'tempFile';
+        await job.save();
+        if (this.jobStateManager) {
+          await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
+        }
         
         // Cache the temp file path and metadata
         await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
@@ -252,16 +259,15 @@ class ExportService extends EventEmitter {
           ? Buffer.from(fileContent, 'utf-8') 
           : fileContent;
         
-        // Complete the job
-        job.status = 'completed';
-        job.progress = 100;
-        job.totalItems = totalCount;
-        job.processedItems = totalCount;
+        // Complete the job - route through JobStateManager
         job.result = resultBuffer;
         job.filename = filename;
         job.storageType = 'buffer';
         job.fileSize = resultBuffer.length;
         await job.save();
+        if (this.jobStateManager) {
+          await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
+        }
         
         // Cache the result for future identical exports
         await this.cacheBufferResult(cacheKey, totalCount, resultBuffer, filename);
@@ -281,11 +287,10 @@ class ExportService extends EventEmitter {
       }
     } catch (error) {
       console.error('[ExportService] Error processing export job:', error);
-      // Update job status to failed
+      // Update job status to failed through JobStateManager
       try {
-        const job = await ExportJob.findById(jobId);
-        if (job) {
-          await job.fail(error);
+        if (this.jobStateManager) {
+          await this.jobStateManager.failJob(jobId, error.message);
         }
       } catch (dbError) {
         // Error handling for DB update failure
@@ -699,14 +704,6 @@ class ExportService extends EventEmitter {
         console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
         // Worker signaling failed but state will be updated by JobStateManager
       }
-      
-      // Remove job from queue if it exists there
-      try {
-        await jobQueue.removeJob(jobId);
-      } catch (error) {
-        console.error(`[ExportService] Error removing job ${jobId} from queue:`, error);
-        // Non-critical operation, continue
-      }
     }
     
     return job;
@@ -728,51 +725,6 @@ class ExportService extends EventEmitter {
    */
   async getClientExportJobs(clientId) {
     return ExportJob.find({ clientId }).sort({ createdAt: -1 });
-  }
-
-  /**
-   * Get download data for a completed export job
-   * @param {string} jobId - Export job ID
-   * @returns {Promise<Object>} Export data with content and filename
-   */
-  async getExportDownload(jobId) {
-    const job = await ExportJob.findById(jobId);
-    if (!job) {
-      throw new Error('Export job not found');
-    }
-    
-    if (job.status !== 'completed') {
-      throw new Error('Export is not completed yet');
-    }
-    
-    // Use a simple filename generation with correct extension
-    const filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
-    
-    if (job.storageType === 'buffer' && job.result) {
-      return {
-        content: job.result,
-        filename: filename,
-        format: job.format,
-        storageType: 'buffer'
-      };
-    } else if (job.storageType === 'tempFile' && job.tempFilePath) {
-      return {
-        tempFilePath: job.tempFilePath,
-        filename: filename,
-        format: job.format,
-        fileSize: job.fileSize,
-        storageType: 'tempFile'
-      };
-    } else if (job.storageType === 'stream') {
-      return {
-        filters: job.filters,
-        filename: filename,
-        format: job.format,
-        storageType: 'stream'
-      };
-    } else {
-      throw new Error('Export data not available');
-    }
   }
 
   /**

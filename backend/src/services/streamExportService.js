@@ -223,67 +223,6 @@ class StreamExportService {
   }
 
   /**
-   * Stream tasks to a buffer for storage
-   * @param {Object} query - MongoDB query object
-   * @param {Object} sort - MongoDB sort object
-   * @param {string} format - Export format ('csv' or 'json')
-   * @param {Function} progressCallback - Callback for progress updates
-   * @returns {Promise<Object>} Buffer and metadata
-   */
-  async streamToBuffer(query, sort, format, progressCallback) {
-    try {
-      // Count total tasks for progress tracking
-      const totalCount = await this.countTasks(query);
-      
-      // Create filename with correct extension
-      const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${format}`;
-      
-      // Create task stream
-      const taskStream = this.createTaskStream(query, sort);
-      
-      // Create progress tracking stream
-      const progressStream = this.createProgressStream(progressCallback, totalCount);
-      
-      // Create format-specific transform stream
-      const formatStream = format === 'json'
-        ? this.createJsonTransform()
-        : this.createCsvTransform();
-      
-      // Create a promise that resolves with the buffer
-      return new Promise((resolve, reject) => {
-        // Collect chunks in an array
-        const chunks = [];
-        
-        // Pipe the streams together
-        taskStream
-          .pipe(progressStream)
-          .pipe(formatStream)
-          .on('data', (chunk) => {
-            // Convert chunk to buffer if it's a string
-            if (typeof chunk === 'string') {
-              chunks.push(Buffer.from(chunk, 'utf-8'));
-            } else {
-              chunks.push(chunk);
-            }
-          })
-          .on('error', (error) => {
-            taskStream.close?.();
-            reject(error);
-          })
-          .on('end', () => {
-            taskStream.close?.();
-            // Combine chunks into a single buffer
-            const buffer = Buffer.concat(chunks);
-            resolve({ buffer, filename, totalCount });
-          });
-      });
-    } catch (error) {
-      console.error('Error in streamToBuffer:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Build a MongoDB query from filter parameters
    * @param {Object} filters - Filter parameters
    * @returns {Object} MongoDB query object

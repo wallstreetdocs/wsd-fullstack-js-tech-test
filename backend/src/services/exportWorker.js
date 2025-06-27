@@ -171,9 +171,8 @@ async function processExportTask(data) {
   
   // Send initial progress update with correct total
   parentPort.postMessage({
-    type: 'progress',
+    type: 'job-progress',
     jobId,
-    status: 'processing',
     progress: 0,
     processedItems: 0,
     totalItems: totalCount
@@ -204,9 +203,8 @@ async function processExportTask(data) {
   
   // Send initial progress update
   parentPort.postMessage({
-    type: 'progress',
+    type: 'job-progress',
     jobId,
-    status: 'processing',
     progress: 0,
     processedItems: 0,
     totalItems: totalCount
@@ -231,9 +229,8 @@ async function processExportTask(data) {
     if (shouldReport) {
       console.log(`[Worker] Streaming progress: ${progress}% (${processed}/${totalCount})`);
       parentPort.postMessage({
-        type: 'progress',
+        type: 'job-progress',
         jobId,
-        status: 'processing',
         progress,
         processedItems: processed,
         totalItems: totalCount

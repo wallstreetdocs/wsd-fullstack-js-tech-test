@@ -28,8 +28,6 @@ class WorkerPool extends EventEmitter {
     this.activeWorkers = new Map(); // Track which workers are busy
     this.numThreads = numThreads;
     this.initialized = false;
-    this.workerErrorCount = new Map(); // Track error count per worker
-    this.maxErrors = 3; // Maximum errors before replacing a worker
     this.isShuttingDown = false;
   }
 
@@ -46,9 +44,6 @@ class WorkerPool extends EventEmitter {
     }
     
     this.initialized = true;
-    
-    // Periodically check worker health
-    this.healthCheckInterval = setInterval(() => this.checkWorkerHealth(), 60000);
   }
 
   /**
@@ -64,18 +59,15 @@ class WorkerPool extends EventEmitter {
       
       // Store worker ID for debugging
       worker.workerId = workerId;
-      this.workerErrorCount.set(workerId, 0);
       
       // Handle messages from worker
       worker.on('message', (message) => {
-        // Special handling for progress updates
-        if (message && message.type === 'progress') {
-          console.log(`[WorkerPool] Received progress update from worker ${workerId}:`, 
+        // Special handling for job progress updates
+        if (message && message.type === 'job-progress') {
+          console.log(`[WorkerPool] Received job progress update from worker ${workerId}:`, 
             `jobId=${message.jobId}, progress=${message.progress}%, items=${message.processedItems}/${message.totalItems}`);
           
-          // No artificial modifications - pass real values as-is
-          
-          this.emit('task-progress', message);
+          this.emit('job-progress', message);
           return;
         }
         
@@ -111,14 +103,10 @@ class WorkerPool extends EventEmitter {
    * @param {Object} message - Message data
    */
   handleWorkerMessage(worker, message) {
-    // Reset error count on successful message
-    if (worker.workerId && message.success !== false) {
-      this.workerErrorCount.set(worker.workerId, 0);
-    }
     
-    // Handle progress updates
-    if (message.type === 'progress') {
-      this.emit('task-progress', message);
+    // Handle job progress updates
+    if (message.type === 'job-progress') {
+      this.emit('job-progress', message);
       return;
     }
     
@@ -173,22 +161,40 @@ class WorkerPool extends EventEmitter {
    * @param {Error} error - Error object
    */
   handleWorkerError(worker, error) {
-    
-    // Increment error count for this worker
-    if (worker.workerId) {
-      const currentCount = this.workerErrorCount.get(worker.workerId) || 0;
-      this.workerErrorCount.set(worker.workerId, currentCount + 1);
-    }
-    
     this.emit('worker-error', { 
       workerId: worker.workerId,
       error 
     });
     
-    // Get the task that this worker was processing
+    this.failWorkerTask(worker, error);
+    this.replaceWorker(worker);
+  }
+
+  /**
+   * Handle worker exits
+   * @private
+   * @param {Worker} worker - Worker that exited
+   * @param {number} code - Exit code
+   */
+  handleWorkerExit(worker, code) {
+    this.emit('worker-exit', { 
+      workerId: worker.workerId,
+      code 
+    });
+    
+    this.failWorkerTask(worker, new Error('Worker terminated unexpectedly'));
+    this.replaceWorker(worker);
+  }
+
+  /**
+   * Fail any active task for a worker and clean up
+   * @private
+   * @param {Worker} worker - Worker that failed
+   * @param {Error} error - Error that caused the failure
+   */
+  failWorkerTask(worker, error) {
     const taskId = this.activeWorkers.get(worker);
     if (taskId !== undefined) {
-      // Find and reject the task with the error
       const taskIndex = this.queue.findIndex(task => task.id === taskId);
       if (taskIndex !== -1) {
         const task = this.queue[taskIndex];
@@ -202,10 +208,8 @@ class WorkerPool extends EventEmitter {
         });
       }
       
-      // Mark worker as free
       this.activeWorkers.delete(worker);
       
-      // Process next task if available
       if (!this.isShuttingDown) {
         this.processNextTask();
       }
@@ -213,86 +217,27 @@ class WorkerPool extends EventEmitter {
   }
 
   /**
-   * Handle worker exits
+   * Replace a worker with a new one
    * @private
-   * @param {Worker} worker - Worker that exited
-   * @param {number} code - Exit code
+   * @param {Worker} worker - Worker to replace
    */
-  handleWorkerExit(worker, code) {
-    
-    this.emit('worker-exit', { 
-      workerId: worker.workerId,
-      code 
-    });
-    
-    // Clean up error tracking
-    if (worker.workerId) {
-      this.workerErrorCount.delete(worker.workerId);
-    }
-    
-    // Replace the worker if not shutting down
-    if (!this.isShuttingDown) {
-      const index = this.workers.indexOf(worker);
-      if (index !== -1) {
-        try {
-          const newWorker = this.addNewWorker(index);
-          
-          // If the worker was processing a task, mark it as failed
-          const taskId = this.activeWorkers.get(worker);
-          if (taskId !== undefined) {
-            const taskIndex = this.queue.findIndex(task => task.id === taskId);
-            if (taskIndex !== -1) {
-              const task = this.queue[taskIndex];
-              this.queue.splice(taskIndex, 1);
-              task.reject(new Error('Worker terminated unexpectedly'));
-              
-              this.emit('task-failed', { 
-                taskId, 
-                workerId: worker.workerId,
-                error: new Error('Worker terminated unexpectedly')
-              });
-            }
-            
-            // Clean up the mapping
-            this.activeWorkers.delete(worker);
-          }
-        } catch (error) {
-          // Failed to replace worker, but continue operation
-        }
-      }
-    }
-  }
-
-  /**
-   * Check health of all workers and replace if needed
-   * @private
-   */
-  checkWorkerHealth() {
+  replaceWorker(worker) {
     if (this.isShuttingDown) return;
     
-    this.workers.forEach((worker, index) => {
-      if (worker.workerId) {
-        const errorCount = this.workerErrorCount.get(worker.workerId) || 0;
-        
-        // Replace workers with too many errors
-        if (errorCount >= this.maxErrors) {
-          
-          // Terminate the problematic worker
-          try {
-            worker.terminate();
-          } catch (e) {
-            // Error handling when terminating worker
-          }
-          
-          // Create a replacement
-          try {
-            this.addNewWorker(index);
-          } catch (error) {
-            // Non-critical error when replacing worker
-          }
-        }
+    const index = this.workers.indexOf(worker);
+    if (index !== -1) {
+      try {
+        worker.terminate();
+      } catch (e) {
+        // Ignore termination errors
       }
-    });
+      
+      try {
+        this.addNewWorker(index);
+      } catch (error) {
+        // Failed to replace worker, but continue operation
+      }
+    }
   }
 
   /**
@@ -379,25 +324,7 @@ class WorkerPool extends EventEmitter {
       this.activeWorkers.delete(availableWorker);
       task.queued = true; // Re-queue the task
       
-      // Increment error count for this worker
-      if (availableWorker.workerId) {
-        const currentCount = this.workerErrorCount.get(availableWorker.workerId) || 0;
-        this.workerErrorCount.set(availableWorker.workerId, currentCount + 1);
-        
-        // If too many errors, replace the worker
-        if (currentCount + 1 >= this.maxErrors) {
-          const index = this.workers.indexOf(availableWorker);
-          if (index !== -1) {
-            try {
-              console.warn(`Replacing problematic worker ${availableWorker.workerId}`);
-              availableWorker.terminate();
-              this.addNewWorker(index);
-            } catch (e) {
-              console.error('Error replacing worker:', e);
-            }
-          }
-        }
-      }
+      this.replaceWorker(availableWorker);
       
       // Try another worker for this task
       setTimeout(() => this.processNextTask(), 100);
@@ -506,11 +433,6 @@ class WorkerPool extends EventEmitter {
     // Begin worker pool shutdown process
     this.isShuttingDown = true;
     
-    // Clear health check interval
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-    }
-    
     // Reject all queued tasks
     this.queue.forEach(task => {
       if (task.reject) {
@@ -535,7 +457,6 @@ class WorkerPool extends EventEmitter {
     await Promise.all(terminationPromises);
     this.workers = [];
     this.activeWorkers.clear();
-    this.workerErrorCount.clear();
     this.initialized = false;
     
     this.emit('shutdown-complete');

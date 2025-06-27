@@ -470,39 +470,6 @@ export const useExportStore = defineStore('exports', () => {
       }
     })
 
-    // Export failed
-    socket.on('export:failed', (data) => {
-      const { jobId, error } = data
-
-      // Update if it's the current export
-      if (jobId === exportProgress.jobId) {
-        exportProgress.status = 'failed'
-        exportProgress.error = error
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = 'failed'
-        activeExports[jobId].error = error
-      }
-    })
-    
-    // Export cancelled
-    socket.on('export:cancelled', (data) => {
-      const { jobId } = data
-
-      // Update if it's the current export
-      if (jobId === exportProgress.jobId) {
-        exportProgress.status = 'cancelled'
-        exportProgress.active = false // Hide the progress bar
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = 'cancelled'
-      }
-    })
-
     // Check for active exports on reconnection
     socket.on('connect', () => {
       console.log('Export store: Reconnected, checking for active exports...')
@@ -727,7 +694,6 @@ export const useExportStore = defineStore('exports', () => {
     socket.off('export:progress')
     socket.off('export:completed')
     socket.off('export:failed')
-    socket.off('export:download-ready')
     socket.off('export:active-jobs')
     socket.off('export:status')
     socket.off('connect')
