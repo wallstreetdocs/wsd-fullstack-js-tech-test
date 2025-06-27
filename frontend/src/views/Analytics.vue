@@ -1,12 +1,3 @@
-<!--
-/**
- * @fileoverview Analytics view with comprehensive task metrics and visualizations
- * @component Analytics
- * @description Detailed analytics page showing task metrics, charts, completion rates,
- * and real-time connection status with live data updates
- */
--->
-
 <template>
   <div>
     <div class="d-flex align-center mb-4">
@@ -31,13 +22,12 @@
       </small>
     </div>
 
+    <!-- Task Metrics -->
     <v-row>
       <v-col cols="12" md="4">
         <metric-card
           title="Average Completion Time"
-          :value="
-            formatCompletionTime(analyticsStore.analytics.averageCompletionTime)
-          "
+          :value="formatCompletionTime(analyticsStore.analytics.averageCompletionTime)"
           icon="mdi-clock"
           color="info"
         />
@@ -60,6 +50,66 @@
       </v-col>
     </v-row>
 
+    <!-- Export Metrics -->
+    <v-row class="mt-4">
+      <v-col cols="12" md="4">
+        <metric-card
+          title="Active Exports"
+          :value="analyticsStore.analytics.exports?.processing || 0"
+          icon="mdi-progress-upload"
+          color="info"
+        />
+      </v-col>
+      <v-col cols="12" md="4">
+        <metric-card
+          title="Completed Today"
+          :value="analyticsStore.analytics.exports?.completedToday || 0"
+          icon="mdi-file-check"
+          color="success"
+        />
+      </v-col>
+      <v-col cols="12" md="4">
+        <metric-card
+          title="Failed Exports"
+          :value="analyticsStore.analytics.exports?.failed || 0"
+          icon="mdi-file-alert"
+          color="error"
+        />
+      </v-col>
+    </v-row>
+
+    <!-- Active Exports Section -->
+    <v-row v-if="analyticsStore.analytics?.exports?.activeExports?.length">
+      <v-col cols="12">
+        <v-card>
+          <v-card-title>Active Exports</v-card-title>
+          <v-card-text>
+            <v-list>
+              <v-list-item
+                  v-for="exportItem in analyticsStore.analytics.exports.activeExports"
+                  :key="exportItem.id"
+              >
+                <template #prepend>
+                  <v-progress-circular
+                      indeterminate
+                      color="primary"
+                      size="24"
+                  ></v-progress-circular>
+                </template>
+                <v-list-item-title>
+                  Export #{{ exportItem.id }}
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  {{item-subtitle}}
+                  </v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Task Distribution Charts -->
     <v-row class="mt-4">
       <v-col cols="12" md="6">
         <v-card class="chart-container equal-height-chart">
@@ -87,6 +137,59 @@
       </v-col>
     </v-row>
 
+    <!-- Export Distribution Charts -->
+    <v-row class="mt-4">
+      <v-col cols="12" md="6">
+        <v-card class="chart-container equal-height-chart">
+          <v-card-title>Export Format Distribution</v-card-title>
+          <v-card-text>
+            <pie-chart
+              :data="analyticsStore.analytics.exports?.byFormat || []"
+              :height="300"
+            />
+          </v-card-text>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="6">
+        <v-card>
+          <v-card-title>Export Statistics</v-card-title>
+          <v-card-text>
+            <v-list>
+              <v-list-item>
+                <template #prepend>
+                  <v-icon color="primary">mdi-clock-outline</v-icon>
+                </template>
+                <v-list-item-title>Average Processing Time</v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ formatProcessingTime(analyticsStore.analytics.exports?.avgProcessingTime) }}
+                </v-list-item-subtitle>
+              </v-list-item>
+              <v-list-item>
+                <template #prepend>
+                  <v-icon color="success">mdi-file-check</v-icon>
+                </template>
+                <v-list-item-title>Success Rate</v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ formatPercentage(analyticsStore.analytics.exports?.successRate) }}
+                </v-list-item-subtitle>
+              </v-list-item>
+              <v-list-item>
+                <template #prepend>
+                  <v-icon color="warning">mdi-calendar-clock</v-icon>
+                </template>
+                <v-list-item-title>Expiring Soon</v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ analyticsStore.analytics.exports?.expiringSoon || 0 }} exports
+                  expiring in 24h
+                </v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Recent Activity -->
     <v-row class="mt-4">
       <v-col cols="12">
         <v-card>
@@ -98,6 +201,7 @@
       </v-col>
     </v-row>
 
+    <!-- Task Summary -->
     <v-row class="mt-4">
       <v-col cols="12" md="6">
         <v-card>
@@ -133,7 +237,7 @@
                   {{ analyticsStore.analytics.tasksByStatus.completed }} tasks
                   finished
                 </v-list-item-subtitle>
-              </v-list-item>
+                </v-list-item>
             </v-list>
           </v-card-text>
         </v-card>
@@ -180,6 +284,7 @@
 </template>
 
 <script setup>
+import {onMounted, onUnmounted} from 'vue'
 import { useAnalyticsStore } from '../stores/analyticsStore.js'
 import MetricCard from '../components/MetricCard.vue'
 import TaskStatusChart from '../components/TaskStatusChart.vue'
@@ -220,6 +325,29 @@ function formatCompletionTime(hours) {
     return `${days}d`
   }
 }
+
+function formatProcessingTime(seconds) {
+  if (!seconds) return 'N/A'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  return `${Math.round(seconds / 3600)}h`
+}
+
+function formatPercentage(value) {
+  if (!value && value !== 0) return 'N/A'
+  return `${Math.round(value * 100)}%`
+}
+
+onMounted(() => {
+  analyticsStore.initializeSocketListeners()
+  analyticsStore.fetchAnalytics()
+})
+
+onUnmounted(() => {
+  analyticsStore.cleanup()
+})
+
+
 </script>
 
 <style scoped>

@@ -23,7 +23,23 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     tasksCreatedToday: 0,
     tasksCompletedToday: 0,
     recentActivity: [],
-    lastUpdated: null
+    lastUpdated: null,
+    // Add export analytics
+    exports: {
+      processing: 0,
+      completedToday: 0,
+      failed: 0,
+      avgProcessingTime: 0,
+      successRate: 0,
+      expiringSoon: 0,
+      activeExports: [],
+      lastUpdated: null,
+      byFormat: [
+        { name: 'CSV', value: 0 },
+        { name: 'XLSX', value: 0 },
+        { name: 'JSON', value: 0 }
+      ]
+    }
   })
 
   const loading = ref(false)
@@ -79,7 +95,11 @@ export const useAnalyticsStore = defineStore('analytics', () => {
 
     try {
       const response = await apiClient.getAnalytics()
-      analytics.value = response.data
+      analytics.value = {
+        ...analytics.value,
+        ...response.data,
+        lastUpdated: new Date()
+      }
     } catch (err) {
       error.value = err.message
       console.error('Error fetching analytics:', err)
@@ -94,7 +114,24 @@ export const useAnalyticsStore = defineStore('analytics', () => {
    * @param {Object} newData - New analytics data to merge
    */
   function updateAnalytics(newData) {
-    analytics.value = { ...analytics.value, ...newData }
+    analytics.value = {
+      ...analytics.value,
+      ...newData,
+      lastUpdated: new Date()
+    }
+  }
+
+  /**
+   * Updates export analytics data
+   * @function updateExportAnalytics
+   * @param {Object} exportData - New export analytics data
+   */
+  function updateExportAnalytics(exportData) {
+    analytics.value.exports = {
+      ...analytics.value.exports,
+      ...exportData
+    }
+    analytics.value.lastUpdated = new Date()
   }
 
   /**
@@ -154,6 +191,10 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       updateAnalytics(data)
     })
 
+    socket.on('export-analytics-update', (data) => {
+      updateExportAnalytics(data)
+    })
+
     socket.on('analytics-error', (error) => {
       console.error('Analytics error:', error)
       addNotification({
@@ -171,9 +212,68 @@ export const useAnalyticsStore = defineStore('analytics', () => {
         '📊 Task update detected, refreshing analytics...',
         data.action
       )
-      // Immediately request fresh analytics when a task is updated
       socket.emit('request-analytics')
     })
+
+    socket.on('export-update', (data) => {
+      console.log(
+        '📊 Export update detected, refreshing analytics...',
+        data.action
+      )
+      socket.emit('request-analytics')
+    })
+
+    socket.on('export-status', (data) => {
+      console.log('Export status received:', data) // Add this debug log
+      if (!analytics.value.exports.activeExports) {
+        analytics.value.exports.activeExports = []
+      }
+
+      const activeExports = analytics.value.exports.activeExports
+      const index = activeExports.findIndex(e => e.id === data.exportId)
+
+      if (data.status === 'processing') {
+        if (index === -1) {
+          activeExports.push({
+            id: data.exportId,
+            status: data.status,
+            format: data.format,
+            timestamp: new Date().toISOString()
+          })
+        }
+      } else {
+        // Remove completed or failed exports
+        if (index !== -1) {
+          activeExports.splice(index, 1)
+        }
+      }
+
+      // Update processing count
+      analytics.value.exports.processing = activeExports.length
+    })
+  }
+
+
+  function updateExportStatus(data) {
+    const exports = analytics.value.exports
+
+    if (data.status === 'processing') {
+      const existingIndex = exports.activeExports.findIndex(e => e.id === data.exportId)
+      if (existingIndex === -1) {
+        exports.activeExports.push({
+          id: data.exportId,
+          status: data.status,
+          format: data.format,
+          timestamp: new Date().toISOString()
+        })
+      } else {
+        exports.activeExports[existingIndex].status = data.status
+      }
+    } else {
+      exports.activeExports = exports.activeExports.filter(e => e.id !== data.exportId)
+    }
+
+    exports.processing = exports.activeExports.length
   }
 
   /**
@@ -184,9 +284,11 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     socket.off('connect')
     socket.off('disconnect')
     socket.off('analytics-update')
+    socket.off('export-analytics-update')
     socket.off('analytics-error')
     socket.off('notification')
     socket.off('task-update')
+    socket.off('export-update')
   }
 
   /**
@@ -219,12 +321,14 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     priorityData,
     fetchAnalytics,
     updateAnalytics,
+    updateExportAnalytics,
     addNotification,
     removeNotification,
     clearNotifications,
     initializeSocketListeners,
     cleanup,
     connect,
-    disconnect
+    disconnect,
+    updateExportStatus
   }
 })

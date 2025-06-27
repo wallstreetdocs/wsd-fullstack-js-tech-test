@@ -7,7 +7,7 @@ import express from 'express';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
-
+import exportService from '../services/exportService.js';
 const router = express.Router();
 
 /**
@@ -44,8 +44,13 @@ router.get('/tasks', async (req, res, next) => {
     const {
       page = 1,
       limit = 10,
+      dateStart,
+      dateEnd,
+      term,
       status,
       priority,
+      estimatedTime,
+      actualTime,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -53,6 +58,20 @@ router.get('/tasks', async (req, res, next) => {
     const query = {};
     if (status) query.status = status;
     if (priority) query.priority = priority;
+    if (dateStart || dateEnd) {
+      query.createdAt = {};
+      if(dateStart) query.createdAt.$gte = new Date(dateStart);
+      if(dateEnd) query.createdAt.$lte = new Date(dateEnd);
+    }
+    if(term) {
+      query.title = { $regex: term, $options: 'i'}
+    }
+    if(estimatedTime) {
+      query.estimatedTime = estimatedTime;
+    }
+    if (actualTime) {
+      query.actualTime = actualTime;
+    }
 
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -278,4 +297,105 @@ router.get('/health', (req, res) => {
   });
 });
 
+/**
+ * POST /exports - Export endpoint
+ */
+router.post('/exports', async (req, res) => {
+  const { format, filters } = req.body;
+
+  if (!['csv', 'json', 'xlsx'].includes(format)) {
+    res.status(400).json({ error: 'Invalid format' });
+    return;
+  }
+
+  const exportId = await exportService.createExport(format, filters);
+  await AnalyticsService.invalidateCacheForExport();
+
+  res.status(201).json({
+    exportId,
+    status: 'pending',
+    message: 'Export process started successfully'
+  })
+})
+
+/**
+ * GET /exports/:id - Export endpoint
+ */
+router.get('/exports/:id', async (req, res) => {
+  const exportDetails = await exportService.getExport(req.params.id);
+
+  res.json({
+    status: 'success',
+    data: exportDetails
+  });
+});
+
+router.get('/exports/:id/download', async (req, res, next) => {
+  try {
+    const exportId = req.params.id;
+    const exportDoc = await exportService.getExport(exportId);
+
+    if (exportDoc.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Export is not ready for download'
+      });
+    }
+
+    const content = await exportService.getExportContent(exportId);
+
+    const contentTypes = {
+      csv: 'text/csv',
+      json: 'application/json',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+
+    const fileName = `tasks-export-${new Date().toISOString().split('T')[0]}.${exportDoc.format}`;
+
+    res.setHeader('Content-Type', contentTypes[exportDoc.format]);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(content);
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/exports', async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const exports = await exportService.getExportHistory(page, limit);
+
+  res.json({
+    status: 'success',
+    data: exports
+  });
+});
+
+router.delete('/exports/cleanup', async (req, res) => {
+
+  const result = await exportService.deleteExpiredFiles()
+  await AnalyticsService.invalidateCacheForExport();
+  res.json({
+    status: 'success',
+    data: result
+  });
+});
+
+router.get('/analytics/exports', async (req, res) => {
+  try {
+    const analytics = await AnalyticsService.getExportAnalytics()
+    res.json({
+      success: true,
+      data: analytics
+    })
+  } catch (error) {
+    console.error('Export analytics error:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch export analytics'
+    })
+  }
+})
 export default router;
