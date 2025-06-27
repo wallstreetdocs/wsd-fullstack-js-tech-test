@@ -163,8 +163,28 @@ class ApiClient {
    * @async
    * @returns {Promise<Object>} Analytics data
    */
+  // async getAnalytics() {
+  //   return this.get('/analytics')
+  // }
+
   async getAnalytics() {
-    return this.get('/analytics')
+    try {
+      const [analyticsResponse, exportsResponse] = await Promise.all([
+        this.get('/analytics'),
+        this.get('/analytics/exports')
+      ])
+
+      return {
+        ...analyticsResponse,
+        data: {
+          ...analyticsResponse.data,
+          exports: exportsResponse.data
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch analytics:', error)
+      throw error
+    }
   }
 
   /**
@@ -175,6 +195,28 @@ class ApiClient {
   async getHealth() {
     return this.get('/health')
   }
+
+  async createExport(payload) {
+    return this.post('/exports', payload)
+  }
+
+  async getExportHistory(params = {}) {
+    return this.get('/exports', params)
+  }
+  async getExport(id) {
+    return this.get(`/exports/${id}`)
+  }
+
+  async downloadExport(id, format) {
+    const url = `${this.baseURL}/exports/${id}/download`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    return format === 'json' ? res.json() : res.blob()
+  }
+  async cleanupExports() {
+    return this.delete('/exports/cleanup')
+  }
+
 }
 
 export default new ApiClient()
