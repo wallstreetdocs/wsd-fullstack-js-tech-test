@@ -261,6 +261,22 @@ class ExportHandler extends EventEmitter {
       }
     });
 
+    // Listen for job pause
+    jobQueue.on('job-paused', async ({ id, progress }) => {
+      try {
+        // Use centralized state manager for paused job
+        await this.jobStateManager.pauseJobWithProgress(id, progress, 'job-queue');
+        
+        // Broadcast notification
+        this.notificationCallback(
+          `Export paused at ${progress?.processedItems || 0} items`,
+          'info'
+        );
+      } catch (err) {
+        console.error('Error handling job pause event:', err);
+      }
+    });
+
     // Listen for worker thread events
     workerPool.on('task-progress', async (progressData) => {
       if (progressData && progressData.jobId) {

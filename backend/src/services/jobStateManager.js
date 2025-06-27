@@ -90,6 +90,24 @@ class JobStateManager {
   }
 
   /**
+   * Mark job as paused with progress information
+   * @param {string} jobId - Export job ID
+   * @param {Object} progress - Progress information
+   * @param {string} source - Source of the update
+   */
+  async pauseJobWithProgress(jobId, progress, source = 'worker') {
+    const job = await ExportJob.findById(jobId);
+    if (job) {
+      job.status = 'paused';
+      job.processedItems = progress.processedItems || job.processedItems;
+      job.lastProcessedId = progress.lastProcessedId || job.lastProcessedId;
+      job.updatedAt = new Date();
+      await job.save();
+      this.broadcastJobStatus(job, source);
+    }
+  }
+
+  /**
    * Resume a job and broadcast status
    * @param {string} jobId - Export job ID  
    * @param {string} source - Source of the update

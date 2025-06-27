@@ -120,18 +120,18 @@ const exportJobSchema = new mongoose.Schema(
       type: String,
       required: false
     },
-    processingType: {
-      type: String,
-      enum: ['background'],
-      default: 'background'
-    },
-    paused: {
+    isResumedJob: {
       type: Boolean,
       default: false
     },
-    cancelled: {
-      type: Boolean,
-      default: false
+    originalJobId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ExportJob',
+      required: false
+    },
+    lastProcessedId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false
     }
   },
   {

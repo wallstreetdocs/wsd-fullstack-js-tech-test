@@ -26,6 +26,7 @@ class WorkerPool extends EventEmitter {
     this.workers = [];
     this.queue = [];
     this.activeWorkers = new Map(); // Track which workers are busy
+    this.taskWorkerMap = new Map(); // Track taskId -> worker mapping for direct messaging
     this.numThreads = numThreads;
     this.initialized = false;
     this.isShuttingDown = false;
@@ -116,11 +117,6 @@ class WorkerPool extends EventEmitter {
       return;
     }
     
-    // Handle control message acknowledgements
-    if (message.type === 'control-ack') {
-      this.emit('control-ack', message);
-      return;
-    }
     
     // Handle task completion/failure
     const taskId = this.activeWorkers.get(worker);
@@ -134,6 +130,14 @@ class WorkerPool extends EventEmitter {
         if (message.success) {
           task.resolve(message.result); // Resolve the promise with the result
           this.emit('task-completed', { taskId, workerId: worker.workerId });
+        } else if (message.paused) {
+          // Handle paused task - resolve with pause indicator
+          task.resolve({ paused: true, progress: message.progress });
+          this.emit('task-paused', { 
+            taskId, 
+            workerId: worker.workerId,
+            progress: message.progress 
+          });
         } else {
           task.reject(new Error(message.error?.message || 'Unknown error'));
           this.emit('task-failed', { 
@@ -146,6 +150,7 @@ class WorkerPool extends EventEmitter {
       
       // Mark worker as free
       this.activeWorkers.delete(worker);
+      this.taskWorkerMap.delete(taskId);
       
       // Process next task if available
       if (!this.isShuttingDown) {
@@ -209,6 +214,7 @@ class WorkerPool extends EventEmitter {
       }
       
       this.activeWorkers.delete(worker);
+      this.taskWorkerMap.delete(taskId);
       
       if (!this.isShuttingDown) {
         this.processNextTask();
@@ -303,6 +309,7 @@ class WorkerPool extends EventEmitter {
     
     // Mark this worker as busy with this task
     this.activeWorkers.set(availableWorker, task.id);
+    this.taskWorkerMap.set(task.id, availableWorker);
     
     this.emit('task-started', { 
       taskId: task.id, 
@@ -322,6 +329,7 @@ class WorkerPool extends EventEmitter {
       
       // Handle error sending task to worker
       this.activeWorkers.delete(availableWorker);
+      this.taskWorkerMap.delete(task.id);
       task.queued = true; // Re-queue the task
       
       this.replaceWorker(availableWorker);
@@ -329,6 +337,44 @@ class WorkerPool extends EventEmitter {
       // Try another worker for this task
       setTimeout(() => this.processNextTask(), 100);
     }
+  }
+
+  /**
+   * Send pause signal to worker handling specific task
+   * @param {string} taskId - ID of the task to pause
+   * @returns {boolean} - True if signal was sent, false if task/worker not found
+   */
+  pauseTask(taskId) {
+    const worker = this.taskWorkerMap.get(taskId);
+    if (worker) {
+      try {
+        worker.postMessage({ type: 'pause', taskId });
+        return true;
+      } catch (error) {
+        console.error(`Error sending pause signal to worker for task ${taskId}:`, error);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Send cancel signal to worker handling specific task
+   * @param {string} taskId - ID of the task to cancel
+   * @returns {boolean} - True if signal was sent, false if task/worker not found
+   */
+  cancelTask(taskId) {
+    const worker = this.taskWorkerMap.get(taskId);
+    if (worker) {
+      try {
+        worker.postMessage({ type: 'cancel', taskId });
+        return true;
+      } catch (error) {
+        console.error(`Error sending cancel signal to worker for task ${taskId}:`, error);
+        return false;
+      }
+    }
+    return false;
   }
 
   /**
@@ -345,84 +391,6 @@ class WorkerPool extends EventEmitter {
     };
   }
   
-  /**
-   * Send control message to worker that is processing a specific task
-   * @param {string} jobId - ID of the job being processed
-   * @param {string} action - Control action ('pause', 'resume', 'cancel')
-   * @returns {Promise<boolean>} Success status of the control operation
-   */
-  async controlWorker(jobId, action) {
-    if (!this.initialized || this.isShuttingDown) {
-      return false;
-    }
-    
-    console.log(`[WorkerPool] Attempting to ${action} job ${jobId}`);
-    
-    // Find the worker processing this task by checking all active workers
-    let targetWorker = null;
-    let targetTaskId = null;
-    
-    for (const [worker, taskId] of this.activeWorkers.entries()) {
-      // Check if this worker's task matches the job ID
-      // For export tasks, the task data would include the job ID
-      // We need to find the task in the queue to check
-      const taskIndex = this.queue.findIndex(task => task.id === taskId);
-      if (taskIndex !== -1) {
-        const task = this.queue[taskIndex];
-        
-        // For export tasks, job ID is in the data
-        if (task.data && task.data.jobId === jobId) {
-          targetWorker = worker;
-          targetTaskId = taskId;
-          break;
-        }
-      }
-    }
-    
-    if (!targetWorker) {
-      console.log(`[WorkerPool] No worker found processing job ${jobId}`);
-      return false;
-    }
-    
-    // Send the control message to the worker
-    try {
-      console.log(`[WorkerPool] Sending ${action} command to worker for job ${jobId}`);
-      
-      // Create a promise that will resolve when the worker acknowledges
-      const ackPromise = new Promise((resolve, reject) => {
-        // Set a timeout to avoid hanging indefinitely
-        const timeout = setTimeout(() => {
-          this.removeListener('control-ack', handleAck);
-          reject(new Error('Control command acknowledgement timeout'));
-        }, 5000);
-        
-        // Listen for acknowledgement
-        const handleAck = (ack) => {
-          if (ack.jobId === jobId && ack.action === action) {
-            clearTimeout(timeout);
-            this.removeListener('control-ack', handleAck);
-            resolve(true);
-          }
-        };
-        
-        this.on('control-ack', handleAck);
-      });
-      
-      // Send the control message
-      targetWorker.postMessage({
-        control: {
-          action,
-          jobId
-        }
-      });
-      
-      // Wait for acknowledgement
-      return await ackPromise;
-    } catch (error) {
-      console.error(`[WorkerPool] Error sending control message to worker:`, error);
-      return false;
-    }
-  }
 
   /**
    * Shut down all workers in the pool
@@ -457,6 +425,7 @@ class WorkerPool extends EventEmitter {
     await Promise.all(terminationPromises);
     this.workers = [];
     this.activeWorkers.clear();
+    this.taskWorkerMap.clear();
     this.initialized = false;
     
     this.emit('shutdown-complete');

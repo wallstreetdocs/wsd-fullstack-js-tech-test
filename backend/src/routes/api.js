@@ -197,9 +197,11 @@ router.post('/tasks', async (req, res, next) => {
 
     await AnalyticsService.invalidateCache();
     
-    // Invalidate export cache for all possible formats and filter combinations
-    await ExportService.invalidateExportCache({ format: 'csv' });
-    await ExportService.invalidateExportCache({ format: 'json' });
+    // Invalidate only affected export caches
+    await ExportService.invalidateAffectedCaches({ 
+      newTask: task, 
+      operation: 'create' 
+    });
 
     // Broadcast real-time update
     if (socketHandlers) {
@@ -229,6 +231,9 @@ router.put('/tasks/:id', async (req, res, next) => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Get original task before updating for selective cache invalidation
+    const originalTask = await Task.findById(id);
+    
     const task = await Task.findByIdAndUpdate(
       id,
       { ...updates, updatedAt: new Date() },
@@ -245,9 +250,12 @@ router.put('/tasks/:id', async (req, res, next) => {
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
     
-    // Invalidate export cache for all possible formats and filter combinations
-    await ExportService.invalidateExportCache({ format: 'csv' });
-    await ExportService.invalidateExportCache({ format: 'json' });
+    // Invalidate only affected export caches
+    await ExportService.invalidateAffectedCaches({ 
+      oldTask: originalTask, 
+      newTask: task, 
+      operation: 'update' 
+    });
 
     // Broadcast real-time update
     if (socketHandlers) {
@@ -287,9 +295,11 @@ router.delete('/tasks/:id', async (req, res, next) => {
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
     
-    // Invalidate export cache for all possible formats and filter combinations
-    await ExportService.invalidateExportCache({ format: 'csv' });
-    await ExportService.invalidateExportCache({ format: 'json' });
+    // Invalidate only affected export caches
+    await ExportService.invalidateAffectedCaches({ 
+      oldTask: task, 
+      operation: 'delete' 
+    });
 
     // Broadcast real-time update
     if (socketHandlers) {

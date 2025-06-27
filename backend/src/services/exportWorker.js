@@ -27,23 +27,31 @@ if (fs.existsSync(envPath)) {
 import Task from '../models/Task.js';
 import streamExportService from './streamExportService.js';
 
+// Worker control flags
+let shouldPause = false;
+let shouldCancel = false;
+let currentTaskId = null;
+
 // Connect to MongoDB (needed for each worker)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/task-analytics';
 mongoose.connect(MONGODB_URI)
   .then(() => {})
   .catch(err => {});
 
-// State for tracking job status
-const jobStates = new Map();
 
 // Listen for messages from the main thread
 parentPort.on('message', async (message) => {
   try {
-    const { taskId, type, data, control } = message;
+    const { taskId, type, data } = message;
     
     // Handle control messages
-    if (control) {
-      handleControlMessage(control);
+    if (type === 'pause' && taskId === currentTaskId) {
+      shouldPause = true;
+      return;
+    }
+    
+    if (type === 'cancel' && taskId === currentTaskId) {
+      shouldCancel = true;
       return;
     }
     
@@ -51,20 +59,12 @@ parentPort.on('message', async (message) => {
     let result;
     
     if (type === 'exportTasks') {
-      // Initialize job state for tracking pause status
-      if (data.jobId) {
-        jobStates.set(data.jobId, { 
-          paused: false,
-          cancelled: false 
-        });
-      }
+      currentTaskId = taskId;
+      shouldPause = false;
+      shouldCancel = false;
       
       result = await processExportTask(data);
       
-      // Clean up job state after completion
-      if (data.jobId) {
-        jobStates.delete(data.jobId);
-      }
     } else {
       throw new Error(`Unknown task type: ${type}`);
     }
@@ -76,79 +76,33 @@ parentPort.on('message', async (message) => {
       result
     });
   } catch (error) {
-    // Send error back to main thread
-    parentPort.postMessage({
-      taskId: message.taskId,
-      success: false,
-      error: {
-        message: error.message,
-        stack: error.stack
-      }
-    });
+    // Check if this was a controlled pause/cancel
+    if (error.message.includes('Job paused at')) {
+      const [, processedStr, lastProcessedId] = error.message.match(/(\d+) items\|(.+)/) || [];
+      const processed = parseInt(processedStr) || 0;
+      parentPort.postMessage({
+        taskId: message.taskId,
+        success: false,
+        paused: true,
+        progress: {
+          processedItems: processed,
+          lastProcessedId: lastProcessedId || null
+        }
+      });
+    } else {
+      // Send error back to main thread
+      parentPort.postMessage({
+        taskId: message.taskId,
+        success: false,
+        error: {
+          message: error.message,
+          stack: error.stack
+        }
+      });
+    }
   }
 });
 
-/**
- * Handle control messages for job control (pause, resume, cancel)
- * @param {Object} control - Control message data
- */
-function handleControlMessage(control) {
-  const { action, jobId } = control;
-  
-  if (!jobId || !jobStates.has(jobId)) {
-    console.log(`[Worker] Control message for unknown job: ${jobId}`);
-    return;
-  }
-  
-  const jobState = jobStates.get(jobId);
-  
-  switch (action) {
-    case 'pause':
-      console.log(`[Worker] Pausing job ${jobId}`);
-      jobState.paused = true;
-      jobStates.set(jobId, jobState);
-      
-      // Acknowledge the pause command
-      parentPort.postMessage({
-        type: 'control-ack',
-        jobId,
-        action: 'pause',
-        status: 'acknowledged'
-      });
-      break;
-      
-    case 'resume':
-      console.log(`[Worker] Resuming job ${jobId}`);
-      jobState.paused = false;
-      jobStates.set(jobId, jobState);
-      
-      // Acknowledge the resume command
-      parentPort.postMessage({
-        type: 'control-ack',
-        jobId,
-        action: 'resume',
-        status: 'acknowledged'
-      });
-      break;
-      
-    case 'cancel':
-      console.log(`[Worker] Cancelling job ${jobId}`);
-      jobState.cancelled = true;
-      jobStates.set(jobId, jobState);
-      
-      // Acknowledge the cancel command
-      parentPort.postMessage({
-        type: 'control-ack',
-        jobId,
-        action: 'cancel',
-        status: 'acknowledged'
-      });
-      break;
-      
-    default:
-      console.log(`[Worker] Unknown control action: ${action}`);
-  }
-}
 
 /**
  * Process an export task
@@ -160,6 +114,12 @@ async function processExportTask(data) {
   
   // Build query from filters using StreamExportService
   const query = streamExportService.buildQueryFromFilters(filters);
+  
+  // Handle resume from specific point
+  if (filters._lastProcessedId) {
+    // Resume from the last processed item (for consistent sorting)
+    query._id = { $gt: filters._lastProcessedId };
+  }
   
   // Set up sorting
   const sort = {};
@@ -200,6 +160,10 @@ async function processExportTask(data) {
   const cursor = Task.find(query).sort(sort).cursor();
   
   let processed = 0;
+  let lastProcessedId = null;
+  
+  // Track base progress for resumed jobs
+  const baseProgress = filters._resumeFromItem || 0;
   
   // Send initial progress update
   parentPort.postMessage({
@@ -218,53 +182,43 @@ async function processExportTask(data) {
     // Stream task directly to file (no memory accumulation)
     formatTransform.write(task);
     processed++;
+    lastProcessedId = task._id;
     
-    // Calculate progress
-    const progress = totalCount > 0 ? Math.floor((processed / totalCount) * 100) : 100;
+    // Calculate progress including base progress from previous runs
+    const totalProcessed = baseProgress + processed;
+    const totalItems = baseProgress + totalCount;
+    const progress = totalItems > 0 ? Math.floor((totalProcessed / totalItems) * 100) : 100;
     
     // Send progress updates
     const shouldReport = processed === 1 || processed === totalCount || 
                         processed % reportEveryNth === 0;
     
     if (shouldReport) {
-      console.log(`[Worker] Streaming progress: ${progress}% (${processed}/${totalCount})`);
+      console.log(`[Worker] Streaming progress: ${progress}% (${totalProcessed}/${totalItems})`);
       parentPort.postMessage({
         type: 'job-progress',
         jobId,
         progress,
-        processedItems: processed,
-        totalItems: totalCount
+        processedItems: totalProcessed,
+        totalItems: totalItems
       });
     }
     
-    // Check for job control (pause/cancel)
-    if (jobId && processed % 10 === 0) { // Check every 10 items to reduce DB calls
-      const ExportJob = (await import('../models/ExportJob.js')).default;
-      const currentJob = await ExportJob.findById(jobId);
-      
-      if (currentJob) {
-        if (currentJob.cancelled) {
-          // Cleanup and throw error
-          formatTransform.end();
-          writeStream.end();
-          fs.unlinkSync(tempFilePath);
-          throw new Error('Job cancelled by user');
-        }
-        
-        // Handle pause
-        while (currentJob.paused) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-          const refreshedJob = await ExportJob.findById(jobId);
-          if (!refreshedJob) throw new Error('Job not found during pause check');
-          Object.assign(currentJob, refreshedJob.toObject());
-          if (currentJob.cancelled) {
-            formatTransform.end();
-            writeStream.end();
-            fs.unlinkSync(tempFilePath);
-            throw new Error('Job cancelled while paused');
-          }
-        }
-      }
+    // Check for job control (immediate response to signals)
+    if (shouldCancel) {
+      // Cleanup and throw error
+      formatTransform.end();
+      writeStream.end();
+      fs.unlinkSync(tempFilePath);
+      throw new Error('Job cancelled by user');
+    }
+    
+    if (shouldPause && processed > 0) {
+      // Save progress and gracefully exit
+      formatTransform.end();
+      writeStream.end();
+      fs.unlinkSync(tempFilePath);
+      throw new Error(`Job paused at ${baseProgress + processed} items|${lastProcessedId}`);
     }
   }
   

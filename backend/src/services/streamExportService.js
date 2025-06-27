@@ -162,65 +162,6 @@ class StreamExportService {
     });
   }
 
-  /**
-   * Stream tasks directly to response
-   * @param {Object} res - Express response object
-   * @param {Object} query - MongoDB query object
-   * @param {Object} sort - MongoDB sort object
-   * @param {string} format - Export format ('csv' or 'json')
-   * @param {Function} progressCallback - Callback for progress updates
-   * @returns {Promise<void>}
-   */
-  async streamToResponse(res, query, sort, format, progressCallback) {
-    try {
-      // Count total tasks for progress tracking
-      const totalCount = await this.countTasks(query);
-      
-      // Set appropriate headers
-      const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${format}`;
-      const contentType = format === 'json' ? 'application/json' : 'text/csv';
-      
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-      
-      // Create task stream
-      const taskStream = this.createTaskStream(query, sort);
-      
-      // Create progress tracking stream
-      const progressStream = this.createProgressStream(progressCallback, totalCount);
-      
-      // Create format-specific transform stream
-      const formatStream = format === 'json' 
-        ? this.createJsonTransform() 
-        : this.createCsvTransform();
-      
-      // Pipe everything together to the response
-      taskStream
-        .pipe(progressStream)
-        .pipe(formatStream)
-        .pipe(res);
-      
-      // Handle errors and cleanup
-      taskStream.on('error', (error) => {
-        console.error('Error in task stream:', error);
-        taskStream.close?.();
-        if (!res.headersSent) {
-          res.status(500).json({ success: false, error: 'Error processing export stream' });
-        }
-      });
-      
-      // Ensure cursor is closed when response ends
-      res.on('close', () => {
-        taskStream.close?.();
-      });
-      
-      // Return the filename for reference
-      return { filename, totalCount };
-    } catch (error) {
-      console.error('Error in streamToResponse:', error);
-      throw error;
-    }
-  }
 
   /**
    * Build a MongoDB query from filter parameters

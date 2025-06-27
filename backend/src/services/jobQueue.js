@@ -197,7 +197,7 @@ class JobQueue extends EventEmitter {
    */
   async handleJobCompletion(jobId, result) {
     try {
-      const { success, error, data } = result;
+      const { success, error, data, paused, progress } = result;
       
       // Remove from active jobs
       this.activeJobs.delete(jobId);
@@ -212,6 +212,16 @@ class JobQueue extends EventEmitter {
         
         // Emit completion event
         this.emit('job-completed', { id: jobId, data });
+      } else if (paused) {
+        // Update job status to 'paused'
+        await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
+          status: 'paused',
+          pausedAt: Date.now(),
+          progress: JSON.stringify(progress || {})
+        });
+        
+        // Emit paused event
+        this.emit('job-paused', { id: jobId, progress });
       } else {
         // Update job status to 'failed'
         await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
@@ -295,41 +305,84 @@ class JobQueue extends EventEmitter {
    * @returns {Promise<void>}
    */
   async recoverPendingJobs() {
+    console.log('Starting job recovery process...');
+    let recoveredCount = 0;
+    let cursor = '0';
+    
     try {
-      // Find all jobs in processing state and reset them to pending
-      const keys = await redisClient.keys(`${this.jobStatusPrefix}*`);
-      
-      for (const key of keys) {
-        const jobStatus = await redisClient.hgetall(key);
+      // Use SCAN instead of KEYS for non-blocking iteration
+      do {
+        const result = await redisClient.scan(cursor, {
+          MATCH: `${this.jobStatusPrefix}*`,
+          COUNT: 100
+        });
         
-        if (jobStatus && jobStatus.status === 'processing') {
-          const jobId = key.replace(this.jobStatusPrefix, '');
-          
-          // Recover job from previous instance
-          
-          // Update status to pending
-          await redisClient.hset(key, {
-            status: 'pending',
-            recoveredAt: Date.now()
-          });
-          
-          // Parse job data
-          let jobData = {};
+        cursor = result.cursor;
+        const keys = result.keys;
+        
+        for (const key of keys) {
           try {
-            jobData = JSON.parse(jobStatus.data || '{}');
-          } catch (e) {
-            // Error parsing job data, continue with empty object
+            await this.recoverSingleJob(key);
+            recoveredCount++;
+          } catch (error) {
+            console.error(`Failed to recover job ${key}:`, error.message);
           }
-          
-          // Re-add to queue
-          await this.addJob(jobId, jobStatus.type || 'unknown', jobData, {
-            priority: parseInt(jobStatus.priority || '0')
-          });
         }
+      } while (cursor !== '0');
+      
+      if (recoveredCount > 0) {
+        console.log(`Successfully recovered ${recoveredCount} jobs`);
+      } else {
+        console.log('No jobs needed recovery');
       }
     } catch (error) {
-      // Error in job recovery process, non-critical
+      console.error('Critical error in job recovery process:', error.message);
     }
+  }
+
+  /**
+   * Recover a single job atomically using Redis transaction
+   * @private
+   * @param {string} key - Redis key for the job status
+   * @returns {Promise<void>}
+   */
+  async recoverSingleJob(key) {
+    const multi = redisClient.multi();
+    
+    // Get current job status
+    const jobStatus = await redisClient.hgetall(key);
+    
+    // Only recover jobs in processing state
+    if (!jobStatus || jobStatus.status !== 'processing') {
+      return;
+    }
+    
+    const jobId = key.replace(this.jobStatusPrefix, '');
+    const timestamp = Date.now();
+    
+    // Parse job data safely
+    let jobData = {};
+    try {
+      jobData = JSON.parse(jobStatus.data || '{}');
+    } catch (error) {
+      console.warn(`Invalid job data for ${jobId}, using empty object`);
+    }
+    
+    const priority = parseInt(jobStatus.priority || '0');
+    const jobType = jobStatus.type || 'unknown';
+    const score = priority * 10000000000 + timestamp;
+    
+    // Atomic recovery: update status and re-add to queue
+    multi.hset(key, {
+      status: 'pending',
+      recoveredAt: timestamp,
+      updatedAt: timestamp
+    });
+    multi.zadd(this.queueName, score, jobId);
+    
+    await multi.exec();
+    
+    console.log(`Recovered job ${jobId} (type: ${jobType}, priority: ${priority})`);
   }
 
   /**

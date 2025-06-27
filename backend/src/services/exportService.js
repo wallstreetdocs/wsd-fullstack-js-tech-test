@@ -108,39 +108,27 @@ class ExportService extends EventEmitter {
       const cacheKey = this.generateCacheKey(job);
       const cachedResult = await redisClient.get(cacheKey);
       
-      // When we load from cache often times it's too fast
-      // so for visuals we do some timeouts to artificially show progress
       if (cachedResult) {
         const cachedData = JSON.parse(cachedResult);
         
-        // Small delay to simulate processing time for better UX
-        await new Promise(resolve => setTimeout(resolve, 150));
-        
         // Handle different cache storage types
         if (cachedData.storageType === 'tempFile') {
-          // Temp file storage - update through JobStateManager
           job.tempFilePath = cachedData.tempFilePath;
           job.filename = cachedData.filename;
           job.fileSize = cachedData.fileSize;
           job.storageType = 'tempFile';
           await job.save();
-          if (this.jobStateManager) {
-            await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
-          }
         } else {
-          // Standard buffer storage - update through JobStateManager
           job.result = Buffer.from(cachedData.result, 'base64');
           job.filename = cachedData.filename;
           job.storageType = 'buffer';
           await job.save();
-          if (this.jobStateManager) {
-            await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
-          }
         }
         
-        // Job completion is handled by database state - no events needed
+        if (this.jobStateManager) {
+          await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
+        }
         
-        // Complete the job in the queue
         callback({
           success: true,
           data: {
@@ -211,12 +199,13 @@ class ExportService extends EventEmitter {
         // Generate filename
         const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
         
-        // Update job with temp file info - route through JobStateManager
+        // Update job with temp file info
         job.tempFilePath = tempFilePath;
         job.filename = filename;
         job.fileSize = fileSize;
         job.storageType = 'tempFile';
         await job.save();
+        
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
         }
@@ -224,9 +213,6 @@ class ExportService extends EventEmitter {
         // Cache the temp file path and metadata
         await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
         
-        // Job completion is handled by database state - no events needed
-        
-        // Complete the job in the queue
         callback({
           success: true,
           data: {
@@ -256,12 +242,13 @@ class ExportService extends EventEmitter {
           ? Buffer.from(fileContent, 'utf-8') 
           : fileContent;
         
-        // Complete the job - route through JobStateManager
+        // Complete the job
         job.result = resultBuffer;
         job.filename = filename;
         job.storageType = 'buffer';
         job.fileSize = resultBuffer.length;
         await job.save();
+        
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
         }
@@ -269,9 +256,6 @@ class ExportService extends EventEmitter {
         // Cache the result for future identical exports
         await this.cacheBufferResult(cacheKey, totalCount, resultBuffer, filename);
         
-        // Job completion is handled by database state - no events needed
-        
-        // Complete the job in the queue
         callback({
           success: true,
           data: {
@@ -500,6 +484,93 @@ class ExportService extends EventEmitter {
   }
 
   /**
+   * Invalidate only export caches that would be affected by a task change
+   * @param {Object} taskChange - Information about the task change
+   * @param {Object} taskChange.oldTask - Task before change (for updates)
+   * @param {Object} taskChange.newTask - Task after change
+   * @param {string} taskChange.operation - 'create', 'update', or 'delete'
+   * @returns {Promise<void>}
+   */
+  async invalidateAffectedCaches(taskChange) {
+    try {
+      const { oldTask, newTask, operation } = taskChange;
+      const task = newTask || oldTask;
+      
+      // Get all possible cache keys that could be affected
+      const affectedKeys = new Set();
+      
+      // For creates/deletes, any cache without specific filters could be affected
+      if (operation === 'create' || operation === 'delete') {
+        // Invalidate unfiltered caches (no status/priority filters)
+        this.addAffectedCacheKeys(affectedKeys, {});
+      }
+      
+      // For all operations, check filters that could match this task
+      const taskStatuses = operation === 'update' && oldTask 
+        ? [oldTask.status, newTask?.status].filter(Boolean)
+        : [task.status];
+      
+      const taskPriorities = operation === 'update' && oldTask
+        ? [oldTask.priority, newTask?.priority].filter(Boolean) 
+        : [task.priority];
+      
+      // Add cache keys for status/priority combinations that could include this task
+      for (const status of taskStatuses) {
+        this.addAffectedCacheKeys(affectedKeys, { status });
+        
+        for (const priority of taskPriorities) {
+          this.addAffectedCacheKeys(affectedKeys, { status, priority });
+        }
+      }
+      
+      for (const priority of taskPriorities) {
+        this.addAffectedCacheKeys(affectedKeys, { priority });
+      }
+      
+      // Invalidate all affected cache keys
+      const invalidationPromises = Array.from(affectedKeys).map(async (cacheKey) => {
+        try {
+          const cachedData = await redisClient.get(cacheKey);
+          if (cachedData) {
+            try {
+              const data = JSON.parse(cachedData);
+              if (data.storageType === 'tempFile' && data.tempFilePath) {
+                if (fs.existsSync(data.tempFilePath)) {
+                  fs.unlinkSync(data.tempFilePath);
+                }
+              }
+            } catch (parseError) {
+              // Ignore parsing errors
+            }
+            await redisClient.del(cacheKey);
+          }
+        } catch (error) {
+          console.error('[ExportService] Error invalidating cache key:', cacheKey, error);
+        }
+      });
+      
+      await Promise.all(invalidationPromises);
+    } catch (error) {
+      console.error('[ExportService] Error in selective cache invalidation:', error);
+      // Non-critical operation, continue
+    }
+  }
+
+  /**
+   * Helper method to add affected cache keys for both CSV and JSON formats
+   * @private
+   * @param {Set} affectedKeys - Set to add cache keys to
+   * @param {Object} filters - Filter parameters
+   */
+  addAffectedCacheKeys(affectedKeys, filters) {
+    // Add cache keys for both formats with these filters
+    for (const format of ['csv', 'json']) {
+      const cacheKey = this.generateCacheKey({ format, filters });
+      affectedKeys.add(cacheKey);
+    }
+  }
+
+  /**
    * Stream an export directly to response
    * @param {string} jobId - Export job ID
    * @param {Object} res - Express response object
@@ -585,14 +656,8 @@ class ExportService extends EventEmitter {
     }
     
     if (job.status === 'processing') {
-      // Signal the worker to pause - all jobs are now background jobs
-      try {
-        console.log(`[ExportService] Signaling worker to pause job ${jobId}`);
-        await workerPool.controlWorker(jobId, 'pause');
-      } catch (error) {
-        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-        // Worker signaling failed but state will be updated by JobStateManager
-      }
+      // Signal worker to pause gracefully
+      workerPool.pauseTask(jobId);
     }
     
     return job;
@@ -610,32 +675,23 @@ class ExportService extends EventEmitter {
     }
     
     if (job.status === 'paused') {
-      // Try to signal the worker directly first - all jobs are now background jobs
-      try {
-        console.log(`[ExportService] Signaling worker to resume job ${jobId}`);
-        const controlResult = await workerPool.controlWorker(jobId, 'resume');
-        
-        if (controlResult) {
-          console.log(`[ExportService] Worker successfully resumed for job ${jobId}`);
-          // If worker was successfully signaled, we don't need to re-queue
-          return job;
-        } else {
-          console.warn(`[ExportService] Worker control failed for job ${jobId}, will try re-queueing`);
-        }
-      } catch (error) {
-        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-        // Continue to re-queue as fallback
-      }
+      // Create continuation filters with resume progress
+      const resumeFilters = {
+        ...job.filters,
+        _resumeFromItem: job.processedItems || 0,
+        _lastProcessedId: job.lastProcessedId
+      };
       
-      // If direct worker signaling failed, re-add the job to the queue
-      console.log(`[ExportService] Re-queueing paused job ${jobId}`);
+      // Re-add the job to the queue
+      console.log(`[ExportService] Re-queueing paused job ${jobId} from item ${job.processedItems || 0}`);
       await jobQueue.addJob(
         job._id.toString(),
         'exportTasks',
         {
           format: job.format,
-          filters: job.filters,
-          clientId: job.clientId
+          filters: resumeFilters,
+          clientId: job.clientId,
+          isResume: true
         },
         { priority: 10 } // Higher priority for resumed jobs
       );
@@ -655,21 +711,14 @@ class ExportService extends EventEmitter {
       throw new Error('Export job not found');
     }
     
-    if (job.status === 'processing' || job.status === 'paused') {
-      // Signal the worker to cancel - all jobs are now background jobs
-      try {
-        console.log(`[ExportService] Signaling worker to cancel job ${jobId}`);
-        const controlResult = await workerPool.controlWorker(jobId, 'cancel');
-        
-        if (controlResult) {
-          console.log(`[ExportService] Worker successfully cancelled for job ${jobId}`);
-        } else {
-          console.warn(`[ExportService] Worker control failed for job ${jobId}, but state will be updated by JobStateManager`);
-        }
-      } catch (error) {
-        console.error(`[ExportService] Error controlling worker for job ${jobId}:`, error);
-        // Worker signaling failed but state will be updated by JobStateManager
-      }
+    if (job.status === 'processing') {
+      // Signal worker to cancel gracefully
+      workerPool.cancelTask(jobId);
+    }
+    
+    // Remove from queue if pending
+    if (job.status === 'pending') {
+      await jobQueue.removeJob(jobId);
     }
     
     return job;
