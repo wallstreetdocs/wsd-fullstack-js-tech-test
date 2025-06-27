@@ -5,6 +5,7 @@
 
 import Task from '../models/Task.js';
 import { redisClient } from '../config/redis.js';
+import Export from "../models/Export.js";
 
 /**
  * Service class for calculating and caching task analytics
@@ -288,6 +289,91 @@ class AnalyticsService {
       console.log(`Fixed ${completedTasksWithoutDate.length} completed tasks`);
     } catch (error) {
       console.error('Error fixing completed tasks data:', error);
+    }
+  }
+
+  static async getExportAnalytics() {
+    try {
+      const cacheKey = 'export_metrics';
+      const cached = await redisClient.get(cacheKey);
+
+      if (cached) {
+        return JSON.parse(cached);
+      }
+
+      const now = new Date();
+      const today = new Date(now.setHours(0, 0, 0, 0));
+
+      const [
+        processing,
+        completedToday,
+        failed,
+        formatCounts,
+        avgTime,
+        totalExports
+      ] = await Promise.all([
+        Export.countDocuments({ status: 'processing' }),
+        Export.countDocuments({
+          status: 'completed',
+          createdAt: { $gte: today }
+        }),
+        Export.countDocuments({ status: 'failed' }),
+        Export.aggregate([
+          {
+            $group: {
+              _id: '$format',
+              count: { $sum: 1 }
+            }
+          }
+        ]),
+        Export.aggregate([
+          {
+            $match: { status: 'completed' }
+          },
+          {
+            $group: {
+              _id: null,
+              avgTime: { $avg: '$processingTime' }
+            }
+          }
+        ]),
+        Export.countDocuments({ status: 'completed' })
+      ]);
+
+      const successRate = totalExports > 0 ?
+        (totalExports - failed) / totalExports : 0;
+
+      const byFormat = formatCounts.map(({ _id, count }) => ({
+        name: _id.toUpperCase(),
+        value: count
+      }));
+
+      const metrics = {
+        processing,
+        completedToday,
+        failed,
+        byFormat,
+        avgProcessingTime: avgTime[0]?.avgTime || 0,
+        successRate,
+        expiringSoon: 0,
+        lastUpdated: new Date().toISOString()
+      };
+
+      await redisClient.setex(cacheKey, 10, JSON.stringify(metrics));
+
+      return metrics;
+    } catch (error) {
+      console.error('Export analytics error:', error);
+      throw error;
+    }
+  }
+
+
+  static async invalidateCacheForExport() {
+    try {
+      redisClient.del('export_metrics')
+    } catch (error) {
+      console.error('Error invalidating analytics cache:', error);
     }
   }
 }

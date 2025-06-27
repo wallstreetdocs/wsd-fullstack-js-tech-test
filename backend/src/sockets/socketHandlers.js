@@ -118,6 +118,21 @@ class SocketHandlers {
       );
     }
   }
+
+  /**
+   * Broadcasts export status updates to all connected clients
+   * @param {string} exportId - Export document ID
+   * @param {string} status - Current status
+   * @param {Object} [data] - Additional data
+   */
+  broadcastExportStatus(exportId, status, data = {}) {
+    this.io.emit('export-status', {
+      exportId,
+      status,
+      ...data,
+      timestamp: new Date().toISOString()
+    });
+  }
 }
 
 export default SocketHandlers;
