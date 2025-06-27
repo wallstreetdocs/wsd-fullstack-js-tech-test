@@ -312,13 +312,10 @@ class JobQueue extends EventEmitter {
     try {
       // Use SCAN instead of KEYS for non-blocking iteration
       do {
-        const result = await redisClient.scan(cursor, {
-          MATCH: `${this.jobStatusPrefix}*`,
-          COUNT: 100
-        });
+        const result = await redisClient.scan(cursor, 'MATCH', `${this.jobStatusPrefix}*`, 'COUNT', 100);
         
-        cursor = result.cursor;
-        const keys = result.keys;
+        cursor = result[0];
+        const keys = result[1];
         
         for (const key of keys) {
           try {

@@ -78,9 +78,8 @@ export const useExportStore = defineStore('exports', () => {
       const queryParams = { ...filters }
 
       // Start export job
-      console.log("BEFORE SERVER!!!!!!!!!!!!!!!!!!!!!!!!!!")
       const response = await apiClient.exportTasks(format, queryParams)
-      console.log("SERVER RESPONDED ??????????????????????????")
+
       // Store job ID for tracking
       const jobId = response.data.jobId
       exportProgress.jobId = jobId
@@ -505,7 +504,7 @@ export const useExportStore = defineStore('exports', () => {
 
     // Handle active exports on reconnection
     socket.on('export:active-jobs', (data) => {
-      console.log("HORAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY")
+
       const { jobs } = data
       console.log(`Export store: Received ${jobs.length} active export(s) after reconnection`)
 
@@ -612,7 +611,6 @@ export const useExportStore = defineStore('exports', () => {
       console.log(`Refreshing export status for job ${jobId}`)
       const response = await apiClient.getExportStatus(jobId)
       
-      console.log("ALOHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
       if (response.success) {
         const jobData = response.data
         
