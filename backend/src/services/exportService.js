@@ -111,7 +111,6 @@ class ExportService extends EventEmitter {
       // When we load from cache often times it's too fast
       // so for visuals we do some timeouts to artificially show progress
       if (cachedResult) {
-        console.log("EVALDAS - CACHED RESULT")
         const cachedData = JSON.parse(cachedResult);
         
         // Small delay to simulate processing time for better UX
@@ -166,7 +165,6 @@ class ExportService extends EventEmitter {
       
       // For very large exports, use streaming with temp file storage
       if (useStreamingWithTempFile) {
-        console.log("EVALDAS - STREAMING WITH TEMP FILE")
         // Create progress tracking function for large exports
         const progressCallback = (progress, processedItems, totalItems) => {
           // Update progress through JobStateManager if available
@@ -239,7 +237,6 @@ class ExportService extends EventEmitter {
           }
         });
       } else {
-        console.log("EVALDAS - BUFFER RESULTS WORKER POOL")
         // For smaller exports, use the worker pool with buffer storage
         console.log(`[ExportService] Standard export (est. ${estimatedSize} bytes), using worker pool`);
         
@@ -566,37 +563,6 @@ class ExportService extends EventEmitter {
         // Stream the file to response
         const fileStream = fs.createReadStream(job.tempFilePath);
         fileStream.pipe(res);
-        return true;
-      } else if (job.storageType === 'stream') {
-        // Recreate the stream from the original query
-        const query = streamExportService.buildQueryFromFilters(job.filters);
-        const sort = streamExportService.buildSortFromFilters(job.filters);
-        
-        // Count total items to ensure accurate progress tracking
-        const totalCount = await Task.countDocuments(query);
-        const displayCount = Math.max(totalCount, 1);
-        
-        // Progress callback for stream recreation
-        const progressCallback = (progress, processedItems, totalItems) => {
-          // Update progress through JobStateManager if available
-          if (this.jobStateManager && progress === 100) {
-            this.jobStateManager.updateProgress(
-              job._id.toString(),
-              progress,
-              processedItems,
-              totalItems,
-              'export-restream-progress'
-            ).catch(error => {
-              console.error('[ExportService] Error updating progress:', error);
-            });
-          }
-        };
-        
-        // Stream to response
-        await streamExportService.streamToResponse(
-          res, query, sort, job.format, progressCallback
-        );
-        
         return true;
       } else {
         throw new Error('Export data not available');

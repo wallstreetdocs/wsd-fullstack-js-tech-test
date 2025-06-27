@@ -27,17 +27,6 @@ const exportConfig = {
    */
   mediumExportCacheTTL: 86400, // 24 hours
 
-  /**
-   * Batch size for processing tasks in streams
-   * @type {number}
-   */
-  streamBatchSize: 100,
-
-  /**
-   * Memory usage threshold in bytes that triggers garbage collection
-   * @type {number}
-   */
-  gcMemoryThreshold: 200 * 1024 * 1024, // 200MB
 };
 
 export default exportConfig;

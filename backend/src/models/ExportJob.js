@@ -113,7 +113,7 @@ const exportJobSchema = new mongoose.Schema(
     },
     storageType: {
       type: String,
-      enum: ['buffer', 'tempFile', 'stream'],
+      enum: ['buffer', 'tempFile'],
       default: 'buffer'
     },
     tempFilePath: {
@@ -122,7 +122,7 @@ const exportJobSchema = new mongoose.Schema(
     },
     processingType: {
       type: String,
-      enum: ['direct', 'background', 'streaming'],
+      enum: ['background'],
       default: 'background'
     },
     paused: {
@@ -142,15 +142,6 @@ const exportJobSchema = new mongoose.Schema(
 
 
 
-// Add method to mark job as streaming
-exportJobSchema.methods.markAsStreaming = function(filename) {
-  this.status = 'completed';
-  this.progress = 100;
-  this.filename = filename;
-  this.storageType = 'stream';
-  this.processingType = 'streaming';
-  return this.save();
-};
 
 
 
