@@ -28,7 +28,7 @@
             color="primary"
             variant="text"
             icon="mdi-download"
-            @click="$emit('download', getJobId())"
+            @click="handleDownloadExport(getJobId())"
             title="Download export"
           ></v-btn>
           <!-- Always show these buttons when exportProgress.status is not null or undefined -->
@@ -75,7 +75,7 @@
             color="default"
             variant="text"
             icon="mdi-close"
-            @click="$emit('close')"
+            @click="closeExportProgress()"
           ></v-btn>
         </div>
 
@@ -231,20 +231,6 @@ const showDownloadButton = computed(() => {
   return currentStatus.value === 'completed'
 })
 
-const showPauseButton = computed(() => {
-  // Only show pause button when processing (not paused or other states)
-  const shouldShow = currentStatus.value === 'processing';
-  console.log(`showPauseButton: ${shouldShow}, status: ${currentStatus.value}`);
-  return shouldShow;
-})
-
-const showResumeButton = computed(() => {
-  // Only show resume button when paused
-  const shouldShow = currentStatus.value === 'paused';
-  console.log(`showResumeButton: ${shouldShow}, status: ${currentStatus.value}`);
-  return shouldShow;
-})
-
 // Show cancel button for jobs that are processing or paused
 const showCancelButton = computed(() => {
   // Always show cancel button when export is active and not completed/failed/cancelled
@@ -287,11 +273,22 @@ function getRecoverySuggestion() {
   return exportProgress.value.recoverySuggestion
 }
 
-function getFormat() {
-  return exportProgress.value.format
+//** For all handlers, it's a design decision to not emit to parent
+// since this component is very specific and I do not see any use case
+// where these handlers would need some overwriting from the parent.
+// So I'm giving up some of the concern seperation, for less boilerplate.**/
+
+function handleDownloadExport(jobId) {
+  // Use the direct store method like in the audit page
+  exportStore.downloadExport(jobId)
+  
+  // Reset active status (but keep details visible for a while)
+  window.setTimeout(() => {
+    exportStore.exportProgress.active = false
+  }, 3000)
 }
 
-// Event handlers
+// Retry handler
 function handleRetry() {
   // Reset the socket connection first for all retry scenarios
   exportStore.resetConnection()
@@ -302,28 +299,22 @@ function handleRetry() {
   }
 }
 
-// Simplified handlers - only call store methods, no duplicate emissions
+function closeExportProgress() {
+  exportStore.exportProgress.active = false
+}
+
+// Pause handler
 function handlePauseExport(jobId) {
-  console.log(`Pausing export for job: ${jobId}`);
-  // Only emit for parent component compatibility (if needed)
-  emit('pause', jobId);
-  // Store method handles the socket emission
   exportStore.pauseExport(jobId);
 }
 
+// Resume handler
 function handleResumeExport(jobId) {
-  console.log(`Resuming export for job: ${jobId}`);
-  // Only emit for parent component compatibility (if needed)
-  emit('resume', jobId);
-  // Store method handles the socket emission
   exportStore.resumeExport(jobId);
 }
 
+// Cancel handler
 function handleCancel(jobId) {
-  console.log(`Cancelling export for job: ${jobId}`);
-  // Only emit for parent component compatibility (if needed)
-  emit('cancel', jobId);
-  // Store method handles the socket emission
   exportStore.cancelExport(jobId);
 }
 </script>

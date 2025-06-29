@@ -283,13 +283,7 @@
     </v-dialog>
 
     <!-- Export Progress Bar -->
-    <export-progress-bar
-      @download="handleDownloadExport"
-      @pause="handlePauseExport"
-      @resume="handleResumeExport"
-      @cancel="handleCancelExport"
-      @close="closeExportProgress"
-    />
+    <export-progress-bar/>
   </div>
 </template>
 
@@ -503,40 +497,11 @@ async function exportTasks(format) {
 
     // Use transformed and cleaned filters
     await exportStore.exportTasks(format, cleanedFilters)
-
-    // No need to show alert, progress bar will appear automatically
+    
   } catch (error) {
     console.error('Export failed to start:', error)
     window.alert(`Export failed to start: ${error.message}`)
   }
-}
-
-function handleDownloadExport(jobId) {
-  console.log('TaskList download handler for job:', jobId)
-  
-  // Use the direct store method like in the audit page
-  exportStore.downloadExport(jobId)
-  
-  // Reset active status (but keep details visible for a while)
-  window.setTimeout(() => {
-    exportStore.exportProgress.active = false
-  }, 3000)
-}
-
-function handlePauseExport(jobId) {
-  exportStore.pauseExport(jobId)
-}
-
-function handleResumeExport(jobId) {
-  exportStore.resumeExport(jobId)
-}
-
-function handleCancelExport(jobId) {
-  exportStore.cancelExport(jobId)
-}
-
-function closeExportProgress() {
-  exportStore.exportProgress.active = false
 }
 
 onMounted(() => {
