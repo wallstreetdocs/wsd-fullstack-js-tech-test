@@ -66,25 +66,24 @@ class StreamExportService {
   createJsonTransform() {
     let isFirstChunk = true;
     let tasksProcessed = 0;
-    
+
     return new Transform({
       objectMode: true,
       transform(task, encoding, callback) {
         try {
           tasksProcessed++;
-          
-          // Start the array if first chunk
-          const prefix = isFirstChunk ? '[' : '';
-          isFirstChunk = false;
-          
+
           // Format the JSON for this task
           const taskJson = JSON.stringify(task);
-          
-          // Add comma for all but the first chunk
-          const separator = prefix ? '' : ',';
-          
-          // Return combined data
-          callback(null, prefix + separator + taskJson);
+
+          if (isFirstChunk) {
+            // First chunk: start array with opening bracket
+            isFirstChunk = false;
+            callback(null, '[' + taskJson);
+          } else {
+            // Subsequent chunks: add comma before the task
+            callback(null, ',' + taskJson);
+          }
         } catch (error) {
           callback(error);
         }
@@ -93,13 +92,13 @@ class StreamExportService {
         // Called when there are no more tasks
         if (isFirstChunk) {
           // No tasks were processed, send an empty array
+          console.log(`JSON transform processed ${tasksProcessed} tasks`);
           callback(null, '[]');
         } else {
           // Close the array
+          console.log(`JSON transform processed ${tasksProcessed} tasks`);
           callback(null, ']');
         }
-        
-        console.log(`JSON transform processed ${tasksProcessed} tasks`);
       }
     });
   }
@@ -115,34 +114,34 @@ class StreamExportService {
     let lastReportedProgress = 0;
     // We'll handle division by zero safely in the transform function
     const safeTotal = totalCount || 0; // Use actual count, even if zero
-    
+
     // Always send an initial progress update with 0% but correct total
     setTimeout(() => {
       progressCallback(0, 0, safeTotal);
     }, 0);
-    
+
     return new Transform({
       objectMode: true,
       transform(chunk, encoding, callback) {
         try {
           // Increment counter
           processedCount++;
-          
+
           // Calculate progress percentage - handle division by zero safely
           const progress = safeTotal > 0 ? Math.floor((processedCount / safeTotal) * 100) : 0;
-          
+
           // Report progress more frequently - now every 1% for better UX
-          const shouldReport = 
+          const shouldReport =
             progress >= lastReportedProgress + 1 || // Every 1% (increased frequency)
             processedCount === 1 || // First item
             processedCount === safeTotal || // Last item
             processedCount % 5 === 0; // Every 5 items for all exports
-            
+
           if (shouldReport) {
             progressCallback(progress, processedCount, safeTotal);
             lastReportedProgress = progress;
           }
-          
+
           // Pass the chunk through unchanged
           callback(null, chunk);
         } catch (error) {
@@ -162,7 +161,6 @@ class StreamExportService {
     });
   }
 
-
   /**
    * Build a MongoDB query from filter parameters
    * @param {Object} filters - Filter parameters
@@ -170,11 +168,11 @@ class StreamExportService {
    */
   buildQueryFromFilters(filters) {
     const query = {};
-    
+
     // Basic filters
     if (filters.status) query.status = filters.status;
     if (filters.priority) query.priority = filters.priority;
-    
+
     // Text search in title or description - optimized for performance
     if (filters.search) {
       // Use text index if available, otherwise use optimized regex
@@ -192,28 +190,28 @@ class StreamExportService {
         ];
       }
     }
-    
+
     // Date range filters
     if (filters.createdAfter || filters.createdBefore) {
       query.createdAt = {};
       if (filters.createdAfter) query.createdAt.$gte = new Date(filters.createdAfter);
       if (filters.createdBefore) query.createdAt.$lte = new Date(filters.createdBefore);
     }
-    
+
     // Completed date range filters
     if (filters.completedAfter || filters.completedBefore) {
       query.completedAt = {};
       if (filters.completedAfter) query.completedAt.$gte = new Date(filters.completedAfter);
       if (filters.completedBefore) query.completedAt.$lte = new Date(filters.completedBefore);
     }
-    
+
     // Estimated time filters
     if (filters.estimatedTimeLt || filters.estimatedTimeGte) {
       query.estimatedTime = {};
       if (filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(filters.estimatedTimeLt);
       if (filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(filters.estimatedTimeGte);
     }
-    
+
     return query;
   }
 

@@ -22,7 +22,7 @@ class ExportService extends EventEmitter {
     this.jobStateManager = null; // Will be set by socket handlers
     this.initializeJobProcessing();
   }
-  
+
   /**
    * Set the job state manager for status broadcasting
    * @param {JobStateManager} jobStateManager - Job state manager instance
@@ -39,7 +39,7 @@ class ExportService extends EventEmitter {
   initializeJobProcessing() {
     // Initialize job queue
     jobQueue.initialize();
-    
+
     // Initialize worker pool if not already initialized
     if (!workerPool.initialized) {
       workerPool.initialize();
@@ -47,6 +47,7 @@ class ExportService extends EventEmitter {
 
     // Set up event listeners
     jobQueue.on('process-job', async (jobRequest) => {
+      console.log('ESAMEEEEEEEEEEEEEEE');
       if (jobRequest.type === 'exportTasks') {
         await this.handleExportJobProcessing(jobRequest);
       }
@@ -67,7 +68,7 @@ class ExportService extends EventEmitter {
    */
   async handleProgressUpdate(progressData) {
     const { jobId, progress, processedItems, totalItems } = progressData;
-    
+
     try {
       // Route all progress updates through JobStateManager
       if (this.jobStateManager) {
@@ -91,26 +92,26 @@ class ExportService extends EventEmitter {
    */
   async handleExportJobProcessing(jobRequest) {
     const { id: jobId, data, callback } = jobRequest;
-    
+
     try {
       // Check if the job exists
       const job = await ExportJob.findById(jobId);
       if (!job) {
         throw new Error(`Export job ${jobId} not found`);
       }
-      
+
       // Update job status to processing through JobStateManager
       if (this.jobStateManager) {
         await this.jobStateManager.updateProgress(jobId, 0, 0, 0, 'job-processing');
       }
-      
+
       // Check cache first
       const cacheKey = this.generateCacheKey(job);
       const cachedResult = await redisClient.get(cacheKey);
-      
+
       if (cachedResult) {
         const cachedData = JSON.parse(cachedResult);
-        
+
         // Handle different cache storage types
         if (cachedData.storageType === 'tempFile') {
           job.tempFilePath = cachedData.tempFilePath;
@@ -124,11 +125,11 @@ class ExportService extends EventEmitter {
           job.storageType = 'buffer';
           await job.save();
         }
-        
+
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
         }
-        
+
         callback({
           success: true,
           data: {
@@ -138,19 +139,20 @@ class ExportService extends EventEmitter {
             filename: cachedData.filename
           }
         });
-        
+
         return;
       }
-      
+      console.log('MAYBE HERE');
       // Check if this export will be too large for buffer storage
       const query = streamExportService.buildQueryFromFilters(job.filters);
       const totalCount = await Task.countDocuments(query);
-      
+      console.log('WE HERE aaaaaaaaaa', totalCount);
+
       // Determine storage strategy based on estimated size
       const estimatedSize = this.estimateExportSize(totalCount, job.format);
       const useStreamingWithTempFile = estimatedSize > exportConfig.mediumExportThreshold;
       const sort = streamExportService.buildSortFromFilters(job.filters);
-      
+
       // For very large exports, use streaming with temp file storage
       if (useStreamingWithTempFile) {
         // Create progress tracking function for large exports
@@ -168,20 +170,20 @@ class ExportService extends EventEmitter {
             });
           }
         };
-        
+
         // Create temp file path
         const tempFilePath = path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
-        
+
         // Stream data to file
         const writeStream = fs.createWriteStream(tempFilePath);
-        
+
         // Create streams and pipe them
         const taskStream = streamExportService.createTaskStream(query, sort);
         const progressStream = streamExportService.createProgressStream(progressCallback, totalCount);
         const formatStream = job.format === 'json'
           ? streamExportService.createJsonTransform()
           : streamExportService.createCsvTransform();
-        
+
         // Wait for stream to finish
         await new Promise((resolve, reject) => {
           taskStream
@@ -191,28 +193,28 @@ class ExportService extends EventEmitter {
             .on('finish', resolve)
             .on('error', reject);
         });
-        
+
         // Get file size
         const stats = fs.statSync(tempFilePath);
         const fileSize = stats.size;
-        
+
         // Generate filename
         const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
-        
+
         // Update job with temp file info
         job.tempFilePath = tempFilePath;
         job.filename = filename;
         job.fileSize = fileSize;
         job.storageType = 'tempFile';
         await job.save();
-        
+
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
         }
-        
+
         // Cache the temp file path and metadata
         await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
-        
+
         callback({
           success: true,
           data: {
@@ -225,37 +227,37 @@ class ExportService extends EventEmitter {
       } else {
         // For smaller exports, use the worker pool with buffer storage
         console.log(`[ExportService] Standard export (est. ${estimatedSize} bytes), using worker pool`);
-        
+
         // Process the export in a worker thread
         const result = await workerPool.runTask('exportTasks', {
           format: job.format,
           filters: job.filters,
           jobId: job._id.toString()
         });
-        
+
         // Update job with the result from worker
         const { totalCount, result: fileContent, filename, format } = result;
         console.log(`[ExportService] Worker returned format: ${format}, filename: ${filename}`);
-        
+
         // Convert result to buffer if it's a string
-        const resultBuffer = typeof fileContent === 'string' 
-          ? Buffer.from(fileContent, 'utf-8') 
+        const resultBuffer = typeof fileContent === 'string'
+          ? Buffer.from(fileContent, 'utf-8')
           : fileContent;
-        
+
         // Complete the job
         job.result = resultBuffer;
         job.filename = filename;
         job.storageType = 'buffer';
         job.fileSize = resultBuffer.length;
         await job.save();
-        
+
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
         }
-        
+
         // Cache the result for future identical exports
         await this.cacheBufferResult(cacheKey, totalCount, resultBuffer, filename);
-        
+
         callback({
           success: true,
           data: {
@@ -276,7 +278,7 @@ class ExportService extends EventEmitter {
       } catch (dbError) {
         // Error handling for DB update failure
       }
-      
+
       // Fail the job in the queue
       callback({
         success: false,
@@ -301,15 +303,15 @@ class ExportService extends EventEmitter {
     const format = (params.format || 'csv').toLowerCase();
     // Ensure format is one of the allowed values
     const validatedFormat = format === 'json' ? 'json' : 'csv';
-    
+
     const { filters, clientId } = params;
-    
+
     // Build query to get export size
     const query = streamExportService.buildQueryFromFilters(filters);
-    
+
     // Get count of documents which match the query
     const totalCount = await Task.countDocuments(query);
-    
+    console.log('TOTAL COUNTAS ', totalCount);
     // Create the export job - all exports now use background processing
     const exportJob = new ExportJob({
       format: validatedFormat,
@@ -319,9 +321,9 @@ class ExportService extends EventEmitter {
       totalItems: totalCount,
       processedItems: 0
     });
-    
+
     await exportJob.save();
-    
+
     // Add job to the queue for background processing
     await jobQueue.addJob(
       exportJob._id.toString(),
@@ -332,7 +334,7 @@ class ExportService extends EventEmitter {
         clientId
       }
     );
-    
+
     return exportJob;
   }
 
@@ -345,13 +347,12 @@ class ExportService extends EventEmitter {
   estimateExportSize(count, format) {
     // Average size per task in bytes (empirical estimates)
     const avgSizePerTask = format === 'json' ? 500 : 250;
-    
+
     // Add overhead for format-specific wrappers
     const overhead = format === 'json' ? 50 : 100;
-    
+
     return (count * avgSizePerTask) + overhead;
   }
-
 
   /**
    * Generate a cache key for an export job based on its parameters
@@ -369,7 +370,7 @@ class ExportService extends EventEmitter {
         priority: filters.priority || null,
         sortBy: filters.sortBy || 'createdAt',
         sortOrder: filters.sortOrder || 'desc',
-        
+
         // Advanced filters
         search: filters.search || null,
         createdAfter: filters.createdAfter || null,
@@ -390,8 +391,8 @@ class ExportService extends EventEmitter {
    * @returns {number} TTL in seconds
    */
   getCacheTTL(totalItems) {
-    return totalItems > 1000 
-      ? exportConfig.mediumExportCacheTTL 
+    return totalItems > 1000
+      ? exportConfig.mediumExportCacheTTL
       : exportConfig.smallExportCacheTTL;
   }
 
@@ -407,14 +408,14 @@ class ExportService extends EventEmitter {
   async cacheBufferResult(cacheKey, totalCount, result, filename) {
     try {
       const cacheTTL = this.getCacheTTL(totalCount);
-      
+
       const cacheData = {
         totalItems: totalCount,
         result: result.toString('base64'),
         filename: filename,
         storageType: 'buffer'
       };
-      
+
       await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
     } catch (cacheError) {
       console.error('[ExportService] Error caching buffer result:', cacheError);
@@ -435,7 +436,7 @@ class ExportService extends EventEmitter {
   async cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize) {
     try {
       const cacheTTL = this.getCacheTTL(totalCount);
-      
+
       const cacheData = {
         totalItems: totalCount,
         tempFilePath: tempFilePath,
@@ -443,7 +444,7 @@ class ExportService extends EventEmitter {
         fileSize: fileSize,
         storageType: 'tempFile'
       };
-      
+
       await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
     } catch (cacheError) {
       console.error('[ExportService] Error caching temp file result:', cacheError);
@@ -460,7 +461,7 @@ class ExportService extends EventEmitter {
     try {
       const cacheKey = this.generateCacheKey(params);
       const cachedData = await redisClient.get(cacheKey);
-      
+
       // If we have cached temp file data, delete the temp file
       if (cachedData) {
         try {
@@ -474,7 +475,7 @@ class ExportService extends EventEmitter {
           // Ignore parsing errors
         }
       }
-      
+
       // Delete the cache entry
       await redisClient.del(cacheKey);
     } catch (error) {
@@ -495,38 +496,38 @@ class ExportService extends EventEmitter {
     try {
       const { oldTask, newTask, operation } = taskChange;
       const task = newTask || oldTask;
-      
+
       // Get all possible cache keys that could be affected
       const affectedKeys = new Set();
-      
+
       // For creates/deletes, any cache without specific filters could be affected
       if (operation === 'create' || operation === 'delete') {
         // Invalidate unfiltered caches (no status/priority filters)
         this.addAffectedCacheKeys(affectedKeys, {});
       }
-      
+
       // For all operations, check filters that could match this task
-      const taskStatuses = operation === 'update' && oldTask 
+      const taskStatuses = operation === 'update' && oldTask
         ? [oldTask.status, newTask?.status].filter(Boolean)
         : [task.status];
-      
+
       const taskPriorities = operation === 'update' && oldTask
-        ? [oldTask.priority, newTask?.priority].filter(Boolean) 
+        ? [oldTask.priority, newTask?.priority].filter(Boolean)
         : [task.priority];
-      
+
       // Add cache keys for status/priority combinations that could include this task
       for (const status of taskStatuses) {
         this.addAffectedCacheKeys(affectedKeys, { status });
-        
+
         for (const priority of taskPriorities) {
           this.addAffectedCacheKeys(affectedKeys, { status, priority });
         }
       }
-      
+
       for (const priority of taskPriorities) {
         this.addAffectedCacheKeys(affectedKeys, { priority });
       }
-      
+
       // Invalidate all affected cache keys
       const invalidationPromises = Array.from(affectedKeys).map(async (cacheKey) => {
         try {
@@ -548,7 +549,7 @@ class ExportService extends EventEmitter {
           console.error('[ExportService] Error invalidating cache key:', cacheKey, error);
         }
       });
-      
+
       await Promise.all(invalidationPromises);
     } catch (error) {
       console.error('[ExportService] Error in selective cache invalidation:', error);
@@ -581,11 +582,11 @@ class ExportService extends EventEmitter {
     if (!job) {
       throw new Error('Export job not found');
     }
-    
+
     if (job.status !== 'completed') {
       throw new Error('Export is not completed yet');
     }
-    
+
     try {
       // Make sure job has consistent count values
       const safeCount = Math.max(job.totalItems || 1, job.processedItems || 1);
@@ -595,12 +596,12 @@ class ExportService extends EventEmitter {
         job.progress = 100;
         await job.save();
       }
-      
+
       // Determine how to serve the export based on storage type
       if (job.storageType === 'buffer' && job.result) {
         // Serve from buffer
         let contentType, filename;
-        
+
         if (job.format === 'json') {
           contentType = 'application/json';
           filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
@@ -608,7 +609,7 @@ class ExportService extends EventEmitter {
           contentType = 'text/csv';
           filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
         }
-        
+
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
         res.send(job.result);
@@ -618,19 +619,19 @@ class ExportService extends EventEmitter {
         if (!fs.existsSync(job.tempFilePath)) {
           throw new Error('Export file not found');
         }
-        
+
         let contentType;
         if (job.format === 'json') {
           contentType = 'application/json';
         } else {
           contentType = 'text/csv';
         }
-        
+
         const filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
-        
+
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-        
+
         // Stream the file to response
         const fileStream = fs.createReadStream(job.tempFilePath);
         fileStream.pipe(res);
@@ -654,12 +655,12 @@ class ExportService extends EventEmitter {
     if (!job) {
       throw new Error('Export job not found');
     }
-    
+
     if (job.status === 'processing') {
       // Signal worker to pause gracefully
       workerPool.pauseTask(jobId);
     }
-    
+
     return job;
   }
 
@@ -673,7 +674,7 @@ class ExportService extends EventEmitter {
     if (!job) {
       throw new Error('Export job not found');
     }
-    
+
     if (job.status === 'paused') {
       // Create continuation filters with resume progress
       const resumeFilters = {
@@ -681,7 +682,7 @@ class ExportService extends EventEmitter {
         _resumeFromItem: job.processedItems || 0,
         _lastProcessedId: job.lastProcessedId
       };
-      
+
       // Re-add the job to the queue
       console.log(`[ExportService] Re-queueing paused job ${jobId} from item ${job.processedItems || 0}`);
       await jobQueue.addJob(
@@ -696,10 +697,10 @@ class ExportService extends EventEmitter {
         { priority: 10 } // Higher priority for resumed jobs
       );
     }
-    
+
     return job;
   }
-  
+
   /**
    * Cancel an export job (only handles worker signaling and queue removal, state managed by JobStateManager)
    * @param {string} jobId - Export job ID
@@ -710,17 +711,17 @@ class ExportService extends EventEmitter {
     if (!job) {
       throw new Error('Export job not found');
     }
-    
+
     if (job.status === 'processing') {
       // Signal worker to cancel gracefully
       workerPool.cancelTask(jobId);
     }
-    
+
     // Remove from queue if pending
     if (job.status === 'pending') {
       await jobQueue.removeJob(jobId);
     }
-    
+
     return job;
   }
 
@@ -750,14 +751,14 @@ class ExportService extends EventEmitter {
    */
   async getExportHistory(page = 1, limit = 10) {
     const skip = (page - 1) * limit;
-    
+
     const jobs = await ExportJob.find({}, { result: 0 }) // Exclude result field to reduce response size
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
-    
+
     const total = await ExportJob.countDocuments();
-    
+
     return {
       jobs,
       pagination: {

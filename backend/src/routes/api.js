@@ -68,11 +68,11 @@ router.get('/tasks', async (req, res, next) => {
     } = req.query;
 
     const query = {};
-    
+
     // Basic filters
     if (status) query.status = status;
     if (priority) query.priority = priority;
-    
+
     // Text search in title or description
     if (search) {
       query.$or = [
@@ -80,21 +80,21 @@ router.get('/tasks', async (req, res, next) => {
         { description: { $regex: search, $options: 'i' } }
       ];
     }
-    
+
     // Date range filters
     if (createdAfter || createdBefore) {
       query.createdAt = {};
       if (createdAfter) query.createdAt.$gte = new Date(createdAfter);
       if (createdBefore) query.createdAt.$lte = new Date(createdBefore);
     }
-    
+
     // Completed date range filters
     if (completedAfter || completedBefore) {
       query.completedAt = {};
       if (completedAfter) query.completedAt.$gte = new Date(completedAfter);
       if (completedBefore) query.completedAt.$lte = new Date(completedBefore);
     }
-    
+
     // Estimated time filters
     if (estimatedTimeLt || estimatedTimeGte) {
       query.estimatedTime = {};
@@ -196,11 +196,11 @@ router.post('/tasks', async (req, res, next) => {
     await task.save();
 
     await AnalyticsService.invalidateCache();
-    
+
     // Invalidate only affected export caches
-    await ExportService.invalidateAffectedCaches({ 
-      newTask: task, 
-      operation: 'create' 
+    await ExportService.invalidateAffectedCaches({
+      newTask: task,
+      operation: 'create'
     });
 
     // Broadcast real-time update
@@ -233,7 +233,7 @@ router.put('/tasks/:id', async (req, res, next) => {
 
     // Get original task before updating for selective cache invalidation
     const originalTask = await Task.findById(id);
-    
+
     const task = await Task.findByIdAndUpdate(
       id,
       { ...updates, updatedAt: new Date() },
@@ -249,12 +249,12 @@ router.put('/tasks/:id', async (req, res, next) => {
 
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
-    
+
     // Invalidate only affected export caches
-    await ExportService.invalidateAffectedCaches({ 
-      oldTask: originalTask, 
-      newTask: task, 
-      operation: 'update' 
+    await ExportService.invalidateAffectedCaches({
+      oldTask: originalTask,
+      newTask: task,
+      operation: 'update'
     });
 
     // Broadcast real-time update
@@ -294,11 +294,11 @@ router.delete('/tasks/:id', async (req, res, next) => {
 
     await redisClient.del(`task:${id}`);
     await AnalyticsService.invalidateCache();
-    
+
     // Invalidate only affected export caches
-    await ExportService.invalidateAffectedCaches({ 
-      oldTask: task, 
-      operation: 'delete' 
+    await ExportService.invalidateAffectedCaches({
+      oldTask: task,
+      operation: 'delete'
     });
 
     // Broadcast real-time update
@@ -357,22 +357,22 @@ router.get('/analytics', async (req, res, next) => {
 router.post('/exportTasks', async (req, res, next) => {
   try {
     const { format, filters } = req.body;
-    
+
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
 
     console.log(`Export request - format: '${validatedFormat}'`);
-    
+
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
       format: validatedFormat,
       filters
     });
-    
-    console.log('Export job created:', { 
-      jobId: exportJob._id, 
+
+    console.log('Export job created:', {
+      jobId: exportJob._id,
       format: validatedFormat
     });
-    
+
     // All exports now use background processing for consistency and scalability
     res.status(202).json({
       success: true,
@@ -382,7 +382,7 @@ router.post('/exportTasks', async (req, res, next) => {
       },
       message: 'Export job created and queued for processing'
     });
-    
+
     // Notify clients via socket if available
     if (socketHandlers) {
       socketHandlers.broadcastNotification(
@@ -406,19 +406,19 @@ router.post('/exportTasks', async (req, res, next) => {
 router.get('/exportTasks/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const exportJob = await ExportJob.findById(id);
-    
+
     if (!exportJob) {
       return res.status(404).json({
         success: false,
         message: 'Export job not found'
       });
     }
-    
+
     // Ensure progress is 100% for completed jobs when reporting status
     const reportedProgress = exportJob.status === 'completed' ? 100 : exportJob.progress;
-    
+
     res.json({
       success: true,
       data: {
@@ -449,9 +449,9 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
   try {
     const { id } = req.params;
     console.log(`Download request for export job ${id}`);
-    
+
     const exportJob = await ExportJob.findById(id);
-    
+
     if (!exportJob) {
       console.error(`Export job ${id} not found for download`);
       return res.status(404).json({
@@ -459,9 +459,9 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
         message: 'Export job not found'
       });
     }
-    
+
     console.log(`Found export job ${id} with status: ${exportJob.status}, storageType: ${exportJob.storageType}`);
-    
+
     if (exportJob.status !== 'completed') {
       console.error(`Export job ${id} status is ${exportJob.status}, not completed`);
       return res.status(400).json({
@@ -469,23 +469,23 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
         message: 'Export is not yet complete'
       });
     }
-    
+
     try {
       // Use the streamExportToResponse method to handle all storage types
       await ExportService.streamExportToResponse(id, res);
-      
+
       // Response already sent by streamExportToResponse
       return;
     } catch (streamError) {
-        console.error(`Error streaming export ${id}:`, streamError);
-      
-        // No fallback available
-        return res.status(500).json({
-          success: false,
-          message: 'Error streaming export data',
-          error: streamError.message
-        });
-      }
+      console.error(`Error streaming export ${id}:`, streamError);
+
+      // No fallback available
+      return res.status(500).json({
+        success: false,
+        message: 'Error streaming export data',
+        error: streamError.message
+      });
+    }
   } catch (error) {
     console.error('Error in download endpoint:', error);
     next(error);
@@ -503,17 +503,17 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
 router.get('/exportHistory', async (req, res, next) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    
+
     const skip = (page - 1) * limit;
-    
+
     // Get export jobs without result data to reduce response size
     const jobs = await ExportJob.find({}, { result: 0 })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
-    
+
     const total = await ExportJob.countDocuments();
-    
+
     res.json({
       success: true,
       data: {

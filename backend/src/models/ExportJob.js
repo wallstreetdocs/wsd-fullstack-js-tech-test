@@ -41,7 +41,7 @@ const exportJobSchema = new mongoose.Schema(
         default: 'desc',
         required: false
       },
-      
+
       // Advanced filters
       search: {
         type: String,
@@ -138,14 +138,6 @@ const exportJobSchema = new mongoose.Schema(
     timestamps: true
   }
 );
-
-
-
-
-
-
-
-
 
 const ExportJob = mongoose.model('ExportJob', exportJobSchema);
 

@@ -25,7 +25,7 @@ const exportConfig = {
    * TTL for medium export cache (in seconds)
    * @type {number}
    */
-  mediumExportCacheTTL: 86400, // 24 hours
+  mediumExportCacheTTL: 86400 // 24 hours
 
 };
 

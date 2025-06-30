@@ -21,9 +21,9 @@ class JobStateManager {
    */
   broadcastJobStatus(job, source = 'unknown') {
     if (!job) return;
-    
+
     console.log(`[JobStateManager] Broadcasting job status: ${job._id}, status=${job.status}, source=${source}`);
-    
+
     // Create single status event with all needed data
     const statusEvent = {
       jobId: job._id.toString(),
@@ -34,10 +34,10 @@ class JobStateManager {
       filename: job.filename,
       error: job.error
     };
-    
+
     // Single broadcast event for all status updates
     this.io.emit('export:status', statusEvent);
-    
+
     // Additional completion event for backward compatibility
     if (job.status === 'completed') {
       this.io.emit('export:completed', {
@@ -47,8 +47,6 @@ class JobStateManager {
       });
     }
   }
-
-
 
   /**
    * Broadcast job progress update
@@ -68,7 +66,7 @@ class JobStateManager {
       job.totalItems = Math.max(0, totalItems);
       job.updatedAt = new Date();
       await job.save();
-      
+
       // Broadcast the updated status
       this.broadcastJobStatus(job, source);
     }
@@ -109,7 +107,7 @@ class JobStateManager {
 
   /**
    * Resume a job and broadcast status
-   * @param {string} jobId - Export job ID  
+   * @param {string} jobId - Export job ID
    * @param {string} source - Source of the update
    */
   async resumeJob(jobId, source = 'user') {

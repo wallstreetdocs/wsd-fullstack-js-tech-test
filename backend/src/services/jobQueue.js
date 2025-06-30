@@ -30,15 +30,15 @@ class JobQueue extends EventEmitter {
    */
   async initialize() {
     if (this.initialized) return;
-    
+
     // Initialize the job queue system
-    
+
     // Start processing jobs
     this.startProcessing();
-    
+
     // Recover any pending jobs from a previous instance
     await this.recoverPendingJobs();
-    
+
     this.initialized = true;
   }
 
@@ -55,10 +55,10 @@ class JobQueue extends EventEmitter {
     if (!this.initialized) {
       await this.initialize();
     }
-    
+
     const priority = options.priority || 0;
     const timestamp = Date.now();
-    
+
     const jobInfo = {
       id: jobId,
       type: jobType,
@@ -69,10 +69,10 @@ class JobQueue extends EventEmitter {
       attempts: 0,
       maxAttempts: options.maxAttempts || 3
     };
-    
+
     // Store job details in Redis
     await redisClient.hset(
-      `${this.jobStatusPrefix}${jobId}`, 
+      `${this.jobStatusPrefix}${jobId}`,
       {
         status: 'pending',
         progress: 0,
@@ -82,13 +82,13 @@ class JobQueue extends EventEmitter {
         data: JSON.stringify(jobData)
       }
     );
-    
+
     // Add to sorted set with priority and timestamp as score
     // Using compound score: priority * 10000000000 + timestamp
     // This ensures higher priority jobs come first, and within same priority, older jobs come first
     const score = priority * 10000000000 + timestamp;
     await redisClient.zadd(this.queueName, score, jobId);
-    
+
     // Trigger processing if not already running
     if (!this.processing) {
       this.startProcessing();
@@ -101,9 +101,9 @@ class JobQueue extends EventEmitter {
    */
   startProcessing() {
     if (this.processing) return;
-    
+
     this.processing = true;
-    
+
     // Start the processing loop
     this.processNextJob();
   }
@@ -114,29 +114,30 @@ class JobQueue extends EventEmitter {
    */
   async processNextJob() {
     if (!this.processing) return;
-    
+
     try {
+
       // Check if we're at the concurrent job limit
       if (this.activeJobs.size >= this.concurrentJobLimit) {
         // Wait a bit and check again
         setTimeout(() => this.processNextJob(), 500);
         return;
       }
-      
+
       // Get the next job from the queue (without removing it)
       const nextJobs = await redisClient.zrange(this.queueName, 0, 0, 'WITHSCORES');
-      
+
       if (!nextJobs || nextJobs.length === 0) {
         // No jobs in queue, wait and check again
         setTimeout(() => this.processNextJob(), 1000);
         return;
       }
-      
+
       const jobId = nextJobs[0];
-      
+
       // Get job details
       const jobDetails = await redisClient.hgetall(`${this.jobStatusPrefix}${jobId}`);
-      
+
       if (!jobDetails) {
         // Job details not found, remove from queue
         await redisClient.zrem(this.queueName, jobId);
@@ -144,7 +145,7 @@ class JobQueue extends EventEmitter {
         this.processNextJob();
         return;
       }
-      
+
       // Parse job data
       let jobData;
       try {
@@ -157,22 +158,22 @@ class JobQueue extends EventEmitter {
         this.processNextJob();
         return;
       }
-      
+
       // Remove job from queue
       await redisClient.zrem(this.queueName, jobId);
-      
+
       // Update job status to 'processing'
       await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
         status: 'processing',
         startedAt: Date.now()
       });
-      
+
       // Add to active jobs
       this.activeJobs.set(jobId, {
         type: jobDetails.type,
         data: jobData
       });
-      
+
       // Emit event for job processor to handle
       this.emit('process-job', {
         id: jobId,
@@ -180,7 +181,7 @@ class JobQueue extends EventEmitter {
         data: jobData,
         callback: (result) => this.handleJobCompletion(jobId, result)
       });
-      
+
       // Continue processing next job immediately
       this.processNextJob();
     } catch (error) {
@@ -198,10 +199,10 @@ class JobQueue extends EventEmitter {
   async handleJobCompletion(jobId, result) {
     try {
       const { success, error, data, paused, progress } = result;
-      
+
       // Remove from active jobs
       this.activeJobs.delete(jobId);
-      
+
       if (success) {
         // Update job status to 'completed'
         await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
@@ -209,7 +210,7 @@ class JobQueue extends EventEmitter {
           completedAt: Date.now(),
           result: JSON.stringify(data || {})
         });
-        
+
         // Emit completion event
         this.emit('job-completed', { id: jobId, data });
       } else if (paused) {
@@ -219,7 +220,7 @@ class JobQueue extends EventEmitter {
           pausedAt: Date.now(),
           progress: JSON.stringify(progress || {})
         });
-        
+
         // Emit paused event
         this.emit('job-paused', { id: jobId, progress });
       } else {
@@ -229,11 +230,11 @@ class JobQueue extends EventEmitter {
           failedAt: Date.now(),
           error: error?.message || 'Unknown error'
         });
-        
+
         // Emit failure event
         this.emit('job-failed', { id: jobId, error });
       }
-      
+
       // Continue processing if not already doing so
       if (!this.processing) {
         this.startProcessing();
@@ -251,11 +252,11 @@ class JobQueue extends EventEmitter {
   async getJobStatus(jobId) {
     try {
       const jobStatus = await redisClient.hgetall(`${this.jobStatusPrefix}${jobId}`);
-      
+
       if (!jobStatus) {
         return { id: jobId, status: 'not_found' };
       }
-      
+
       // Parse result if exists
       if (jobStatus.result) {
         try {
@@ -264,7 +265,7 @@ class JobQueue extends EventEmitter {
           // If parse fails, keep as string
         }
       }
-      
+
       // Parse data if exists
       if (jobStatus.data) {
         try {
@@ -273,7 +274,7 @@ class JobQueue extends EventEmitter {
           // If parse fails, keep as string
         }
       }
-      
+
       return { id: jobId, ...jobStatus };
     } catch (error) {
       return { id: jobId, status: 'error', error: error.message };
@@ -308,15 +309,15 @@ class JobQueue extends EventEmitter {
     console.log('Starting job recovery process...');
     let recoveredCount = 0;
     let cursor = '0';
-    
+
     try {
       // Use SCAN instead of KEYS for non-blocking iteration
       do {
         const result = await redisClient.scan(cursor, 'MATCH', `${this.jobStatusPrefix}*`, 'COUNT', 100);
-        
+
         cursor = result[0];
         const keys = result[1];
-        
+
         for (const key of keys) {
           try {
             await this.recoverSingleJob(key);
@@ -326,7 +327,7 @@ class JobQueue extends EventEmitter {
           }
         }
       } while (cursor !== '0');
-      
+
       if (recoveredCount > 0) {
         console.log(`Successfully recovered ${recoveredCount} jobs`);
       } else {
@@ -345,18 +346,18 @@ class JobQueue extends EventEmitter {
    */
   async recoverSingleJob(key) {
     const multi = redisClient.multi();
-    
+
     // Get current job status
     const jobStatus = await redisClient.hgetall(key);
-    
+
     // Only recover jobs in processing state
     if (!jobStatus || jobStatus.status !== 'processing') {
       return;
     }
-    
+
     const jobId = key.replace(this.jobStatusPrefix, '');
     const timestamp = Date.now();
-    
+
     // Parse job data safely
     let jobData = {};
     try {
@@ -364,11 +365,11 @@ class JobQueue extends EventEmitter {
     } catch (error) {
       console.warn(`Invalid job data for ${jobId}, using empty object`);
     }
-    
+
     const priority = parseInt(jobStatus.priority || '0');
     const jobType = jobStatus.type || 'unknown';
     const score = priority * 10000000000 + timestamp;
-    
+
     // Atomic recovery: update status and re-add to queue
     multi.hset(key, {
       status: 'pending',
@@ -376,9 +377,9 @@ class JobQueue extends EventEmitter {
       updatedAt: timestamp
     });
     multi.zadd(this.queueName, score, jobId);
-    
+
     await multi.exec();
-    
+
     console.log(`Recovered job ${jobId} (type: ${jobType}, priority: ${priority})`);
   }
 
@@ -392,29 +393,29 @@ class JobQueue extends EventEmitter {
       const now = Date.now();
       const keys = await redisClient.keys(`${this.jobStatusPrefix}*`);
       let cleanedCount = 0;
-      
+
       for (const key of keys) {
         const jobStatus = await redisClient.hgetall(key);
-        
+
         if (!jobStatus) continue;
-        
+
         if (['completed', 'failed'].includes(jobStatus.status)) {
           const completedAt = parseInt(jobStatus.completedAt || jobStatus.failedAt || '0');
-          
+
           if (completedAt > 0 && (now - completedAt) > maxAge) {
             const jobId = key.replace(this.jobStatusPrefix, '');
-            
+
             // Remove job status
             await redisClient.del(key);
-            
+
             // Also remove from queue if somehow still there
             await redisClient.zrem(this.queueName, jobId);
-            
+
             cleanedCount++;
           }
         }
       }
-      
+
       // Cleanup complete
       return cleanedCount;
     } catch (error) {

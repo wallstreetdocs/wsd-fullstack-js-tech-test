@@ -37,13 +37,13 @@ class WorkerPool extends EventEmitter {
    */
   initialize() {
     if (this.initialized || this.isShuttingDown) return;
-    
+
     // Initialize the worker threads
-    
+
     for (let i = 0; i < this.numThreads; i++) {
       this.addNewWorker(i);
     }
-    
+
     this.initialized = true;
   }
 
@@ -57,38 +57,38 @@ class WorkerPool extends EventEmitter {
     try {
       const worker = new Worker(path.resolve(__dirname, './exportWorker.js'));
       const workerId = `worker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
+
       // Store worker ID for debugging
       worker.workerId = workerId;
-      
+
       // Handle messages from worker
       worker.on('message', (message) => {
         // Special handling for job progress updates
         if (message && message.type === 'job-progress') {
-          console.log(`[WorkerPool] Received job progress update from worker ${workerId}:`, 
+          console.log(`[WorkerPool] Received job progress update from worker ${workerId}:`,
             `jobId=${message.jobId}, progress=${message.progress}%, items=${message.processedItems}/${message.totalItems}`);
-          
+
           this.emit('job-progress', message);
           return;
         }
-        
+
         // Handle other messages
         this.handleWorkerMessage(worker, message);
       });
-      
+
       // Handle worker errors
       worker.on('error', (error) => this.handleWorkerError(worker, error));
-      
+
       // Handle worker exit
       worker.on('exit', (code) => this.handleWorkerExit(worker, code));
-      
+
       // Add worker to pool
       if (index >= 0 && index < this.workers.length) {
         this.workers[index] = worker;
       } else {
         this.workers.push(worker);
       }
-      
+
       this.emit('worker-added', { workerId });
       return worker;
     } catch (error) {
@@ -104,20 +104,19 @@ class WorkerPool extends EventEmitter {
    * @param {Object} message - Message data
    */
   handleWorkerMessage(worker, message) {
-    
+
     // Handle job progress updates
     if (message.type === 'job-progress') {
       this.emit('job-progress', message);
       return;
     }
-    
+
     // Handle status updates
     if (message.type === 'status-update') {
       this.emit('task-status', message);
       return;
     }
-    
-    
+
     // Handle task completion/failure
     const taskId = this.activeWorkers.get(worker);
     if (taskId !== undefined) {
@@ -126,32 +125,32 @@ class WorkerPool extends EventEmitter {
       if (taskIndex !== -1) {
         const task = this.queue[taskIndex];
         this.queue.splice(taskIndex, 1); // Remove from queue
-        
+
         if (message.success) {
           task.resolve(message.result); // Resolve the promise with the result
           this.emit('task-completed', { taskId, workerId: worker.workerId });
         } else if (message.paused) {
           // Handle paused task - resolve with pause indicator
           task.resolve({ paused: true, progress: message.progress });
-          this.emit('task-paused', { 
-            taskId, 
+          this.emit('task-paused', {
+            taskId,
             workerId: worker.workerId,
-            progress: message.progress 
+            progress: message.progress
           });
         } else {
           task.reject(new Error(message.error?.message || 'Unknown error'));
-          this.emit('task-failed', { 
-            taskId, 
+          this.emit('task-failed', {
+            taskId,
             workerId: worker.workerId,
-            error: message.error 
+            error: message.error
           });
         }
       }
-      
+
       // Mark worker as free
       this.activeWorkers.delete(worker);
       this.taskWorkerMap.delete(taskId);
-      
+
       // Process next task if available
       if (!this.isShuttingDown) {
         this.processNextTask();
@@ -166,11 +165,11 @@ class WorkerPool extends EventEmitter {
    * @param {Error} error - Error object
    */
   handleWorkerError(worker, error) {
-    this.emit('worker-error', { 
+    this.emit('worker-error', {
       workerId: worker.workerId,
-      error 
+      error
     });
-    
+
     this.failWorkerTask(worker, error);
     this.replaceWorker(worker);
   }
@@ -182,11 +181,11 @@ class WorkerPool extends EventEmitter {
    * @param {number} code - Exit code
    */
   handleWorkerExit(worker, code) {
-    this.emit('worker-exit', { 
+    this.emit('worker-exit', {
       workerId: worker.workerId,
-      code 
+      code
     });
-    
+
     this.failWorkerTask(worker, new Error('Worker terminated unexpectedly'));
     this.replaceWorker(worker);
   }
@@ -205,17 +204,17 @@ class WorkerPool extends EventEmitter {
         const task = this.queue[taskIndex];
         this.queue.splice(taskIndex, 1);
         task.reject(error);
-        
-        this.emit('task-failed', { 
-          taskId, 
+
+        this.emit('task-failed', {
+          taskId,
           workerId: worker.workerId,
-          error 
+          error
         });
       }
-      
+
       this.activeWorkers.delete(worker);
       this.taskWorkerMap.delete(taskId);
-      
+
       if (!this.isShuttingDown) {
         this.processNextTask();
       }
@@ -229,7 +228,7 @@ class WorkerPool extends EventEmitter {
    */
   replaceWorker(worker) {
     if (this.isShuttingDown) return;
-    
+
     const index = this.workers.indexOf(worker);
     if (index !== -1) {
       try {
@@ -237,7 +236,7 @@ class WorkerPool extends EventEmitter {
       } catch (e) {
         // Ignore termination errors
       }
-      
+
       try {
         this.addNewWorker(index);
       } catch (error) {
@@ -256,15 +255,15 @@ class WorkerPool extends EventEmitter {
     if (this.isShuttingDown) {
       return Promise.reject(new Error('Worker pool is shutting down'));
     }
-    
+
     if (!this.initialized) {
       this.initialize();
     }
-    
+
     return new Promise((resolve, reject) => {
       // Create a unique ID for this task
       const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
+
       // Add task to queue
       this.queue.push({
         id: taskId,
@@ -275,13 +274,13 @@ class WorkerPool extends EventEmitter {
         queued: true, // Flag to indicate the task is in queue but not yet assigned
         addedAt: Date.now() // For tracking how long tasks wait in queue
       });
-      
-      this.emit('task-queued', { 
-        taskId, 
-        type: taskType, 
+
+      this.emit('task-queued', {
+        taskId,
+        type: taskType,
         queueLength: this.queue.length
       });
-      
+
       // Try to process it immediately
       this.processNextTask();
     });
@@ -293,30 +292,30 @@ class WorkerPool extends EventEmitter {
    */
   processNextTask() {
     if (this.isShuttingDown) return;
-    
+
     // Find the next queued task
     const taskIndex = this.queue.findIndex(task => task.queued);
     if (taskIndex === -1) return; // No queued tasks
-    
+
     // Find an available worker
     const availableWorker = this.workers.find(worker => !this.activeWorkers.has(worker));
     if (!availableWorker) return; // No available workers
-    
+
     // Get and mark the task as not queued
     const task = this.queue[taskIndex];
     task.queued = false;
     task.startedAt = Date.now(); // Track when task started execution
-    
+
     // Mark this worker as busy with this task
     this.activeWorkers.set(availableWorker, task.id);
     this.taskWorkerMap.set(task.id, availableWorker);
-    
-    this.emit('task-started', { 
-      taskId: task.id, 
+
+    this.emit('task-started', {
+      taskId: task.id,
       workerId: availableWorker.workerId,
       waitTime: task.startedAt - task.addedAt
     });
-    
+
     // Send the task to the worker
     try {
       availableWorker.postMessage({
@@ -326,14 +325,14 @@ class WorkerPool extends EventEmitter {
       });
     } catch (error) {
       console.error('Error sending task to worker:', error);
-      
+
       // Handle error sending task to worker
       this.activeWorkers.delete(availableWorker);
       this.taskWorkerMap.delete(task.id);
       task.queued = true; // Re-queue the task
-      
+
       this.replaceWorker(availableWorker);
-      
+
       // Try another worker for this task
       setTimeout(() => this.processNextTask(), 100);
     }
@@ -390,17 +389,16 @@ class WorkerPool extends EventEmitter {
       isShuttingDown: this.isShuttingDown
     };
   }
-  
 
   /**
    * Shut down all workers in the pool
    */
   async shutdown() {
     if (this.isShuttingDown) return;
-    
+
     // Begin worker pool shutdown process
     this.isShuttingDown = true;
-    
+
     // Reject all queued tasks
     this.queue.forEach(task => {
       if (task.reject) {
@@ -408,7 +406,7 @@ class WorkerPool extends EventEmitter {
       }
     });
     this.queue = [];
-    
+
     // Terminate all workers
     const terminationPromises = this.workers.map(worker => {
       return new Promise(resolve => {
@@ -421,13 +419,13 @@ class WorkerPool extends EventEmitter {
         }
       });
     });
-    
+
     await Promise.all(terminationPromises);
     this.workers = [];
     this.activeWorkers.clear();
     this.taskWorkerMap.clear();
     this.initialized = false;
-    
+
     this.emit('shutdown-complete');
   }
 }

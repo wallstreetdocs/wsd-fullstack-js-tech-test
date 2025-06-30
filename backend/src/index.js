@@ -35,7 +35,7 @@ const io = new Server(server, {
 if (process.env.NODE_ENV !== 'production') {
   io.on('connection', (socket) => {
     console.log(`💡 Debug: Socket connection established: ${socket.id}`);
-    
+
     // Listen for all packets
     socket.onAny((event, ...args) => {
       console.log(`💡 Debug: Socket ${socket.id} event: ${event}`, args);
@@ -87,15 +87,15 @@ const gracefulShutdown = async (signal) => {
     // Shutdown worker pool
     console.log('Shutting down worker pool...');
     await workerPool.shutdown();
-    
+
     // Pause job queue
     console.log('Pausing job queue...');
     await jobQueue.pause();
-    
+
     // Shutdown temp file cleanup service
     console.log('Shutting down temp file cleanup service...');
     tempFileCleanupService.shutdown();
-    
+
     // Close server
     server.close(() => {
       console.log('✅ HTTP server closed');
@@ -141,7 +141,7 @@ const startServer = async () => {
     // Initialize worker pool
     console.log('🧵 Initializing worker thread pool...');
     workerPool.initialize();
-    
+
     // Initialize job queue
     console.log('🔄 Initializing job queue...');
     await jobQueue.initialize();
@@ -180,7 +180,7 @@ const startServer = async () => {
     // Initialize temp file cleanup service (runs every 24 hours)
     console.log('🧹 Initializing temp file cleanup service...');
     tempFileCleanupService.initialize();
-    
+
     // Also clean up temp files periodically (every 12 hours)
     setInterval(async () => {
       try {

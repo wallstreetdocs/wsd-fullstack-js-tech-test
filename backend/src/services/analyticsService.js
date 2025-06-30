@@ -219,13 +219,13 @@ class AnalyticsService {
       .sort({ updatedAt: -1 })
       .limit(10)
       .select('title status priority updatedAt');
-    
+
     // Get recent export jobs
     const exports = await ExportJob.find({ status: { $in: ['completed', 'failed'] } })
       .sort({ updatedAt: -1 })
       .limit(10)
       .select('filename status format updatedAt');
-    
+
     // Convert export jobs to task-like format for activity feed
     const exportActivities = exports.map(exportJob => ({
       _id: exportJob._id,
@@ -234,12 +234,12 @@ class AnalyticsService {
       priority: 'medium',
       updatedAt: exportJob.updatedAt
     }));
-    
+
     // Combine and sort by updatedAt
     const combinedActivity = [...tasks, ...exportActivities]
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
       .slice(0, 10);
-    
+
     return combinedActivity;
   }
 
@@ -364,22 +364,22 @@ class AnalyticsService {
       while (currentDate <= today) {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth() + 1; // MongoDB months are 1-12
-        
+
         // Look for a match in our aggregation results
         const match = result.find(
           item => item._id.year === year && item._id.month === month
         );
-        
+
         // Get the month label
         const monthLabel = this.formatWeekLabel(currentDate);
-        
+
         monthlyData.push({
           label: monthLabel,
           year,
           month,
           count: match ? match.count : 0
         });
-        
+
         // Move to next month
         currentDate.setMonth(currentDate.getMonth() + 1);
       }
@@ -416,7 +416,7 @@ class AnalyticsService {
    */
   static formatWeekLabel(date) {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
+
     // Just return the month name
     return monthNames[date.getMonth()];
   }
