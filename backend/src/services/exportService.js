@@ -191,12 +191,21 @@ class ExportService extends EventEmitter {
         // Stream data to file
         const writeStream = fs.createWriteStream(tempFilePath);
 
-        // Create streams and pipe them
-        const taskStream = streamExportService.createTaskStream(query, sort);
-        const progressStream = streamExportService.createProgressStream(progressCallback, totalCount);
+        // Get resume information for streaming exports
+        const resumeFromCount = job.processedItems || 0;
+        const isResuming = resumeFromCount > 0;
+        
+        // Create streams with resume capability
+        const taskStream = streamExportService.createTaskStream(query, sort, resumeFromCount);
+        const progressStream = streamExportService.createProgressStream(progressCallback, totalCount, resumeFromCount);
         const formatStream = job.format === 'json'
           ? streamExportService.createJsonTransform()
           : streamExportService.createCsvTransform();
+          
+        // Log resume information
+        if (isResuming) {
+          console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount}`);
+        }
 
         // Wait for stream to finish
         await new Promise((resolve, reject) => {
@@ -718,7 +727,7 @@ class ExportService extends EventEmitter {
   }
 
   /**
-   * Resume an export job (only handles worker signaling and queue management, state managed by JobStateManager)
+   * Resume an export job (handles both streaming and worker-based exports)
    * @param {string} jobId - Export job ID
    * @returns {Promise<Object>} Export job
    */
@@ -729,26 +738,49 @@ class ExportService extends EventEmitter {
     }
 
     if (job.status === 'paused') {
-      // Create continuation filters with resume progress
-      const resumeFilters = {
-        ...job.filters,
-        _resumeFromItem: job.processedItems || 0,
-        _lastProcessedId: job.lastProcessedId
-      };
+      // Determine if this is a streaming export by checking the same condition as startExport
+      const query = streamExportService.buildQueryFromFilters(job.filters);
+      const totalCount = await Task.countDocuments(query);
+      const estimatedSize = this.estimateExportSize(totalCount, job.format);
+      const isStreamingExport = estimatedSize > exportConfig.mediumExportThreshold;
+      
+      if (isStreamingExport) {
+        // For streaming exports, restart the export process directly with resume capability
+        console.log(`[ExportService] Resuming streaming export ${jobId} from item ${job.processedItems || 0}`);
+        
+        // Update job status to processing
+        if (this.jobStateManager) {
+          await this.jobStateManager.resumeJob(jobId, 'resume-streaming');
+        }
+        
+        // Restart the export process with existing job data (it will use processedItems for resume)
+        // Use a proper callback to avoid getting stuck
+        const callback = (result) => {
+          console.log(`[ExportService] Streaming export resume completed for job ${jobId}:`, result);
+        };
+        
+        this.startExport(job, callback);
+      } else {
+        // For worker-based exports, use the existing queue approach
+        const resumeFilters = {
+          ...job.filters,
+          _resumeFromItem: job.processedItems || 0,
+          _lastProcessedId: job.lastProcessedId
+        };
 
-      // Re-add the job to the queue
-      console.log(`[ExportService] Re-queueing paused job ${jobId} from item ${job.processedItems || 0}`);
-      await jobQueue.addJob(
-        job._id.toString(),
-        'exportTasks',
-        {
-          format: job.format,
-          filters: resumeFilters,
-          clientId: job.clientId,
-          isResume: true
-        },
-        { priority: 10 } // Higher priority for resumed jobs
-      );
+        console.log(`[ExportService] Re-queueuing worker-based export ${jobId} from item ${job.processedItems || 0}`);
+        await jobQueue.addJob(
+          job._id.toString(),
+          'exportTasks',
+          {
+            format: job.format,
+            filters: resumeFilters,
+            clientId: job.clientId,
+            isResume: true
+          },
+          { priority: 10 } // Higher priority for resumed jobs
+        );
+      }
     }
 
     return job;

@@ -11,11 +11,16 @@ class StreamExportService {
    * Create a readable stream for task data
    * @param {Object} query - MongoDB query object
    * @param {Object} sort - MongoDB sort object
+   * @param {number} skipItems - Number of items to skip for resume functionality
    * @returns {stream.Readable} MongoDB cursor as readable stream
    */
-  createTaskStream(query, sort) {
-    // Use MongoDB cursor as a readable stream
-    return Task.find(query).sort(sort).cursor();
+  createTaskStream(query, sort, skipItems = 0) {
+    // Use MongoDB cursor as a readable stream, with skip for resume functionality
+    let mongoQuery = Task.find(query).sort(sort);
+    if (skipItems > 0) {
+      mongoQuery = mongoQuery.skip(skipItems);
+    }
+    return mongoQuery.cursor();
   }
 
   /**
@@ -106,20 +111,22 @@ class StreamExportService {
    * Create a progress tracking transform stream
    * @param {Function} progressCallback - Callback for progress updates
    * @param {number} totalCount - Total number of items to process
+   * @param {number} resumeFromCount - Number of items already processed (for resume)
    * @returns {stream.Transform} Transform stream that tracks progress
    */
-  createProgressStream(progressCallback, totalCount) {
-    let processedCount = 0;
+  createProgressStream(progressCallback, totalCount, resumeFromCount = 0) {
+    let processedCount = resumeFromCount; // Start from resume point
     let lastReportedProgress = 0;
     let streamDestroyed = false;
     // We'll handle division by zero safely in the transform function
     const safeTotal = totalCount || 0; // Use actual count, even if zero
 
-    // Always send an initial progress update with 0% but correct total
+    // Send initial progress update with resume progress
     setTimeout(async () => {
       if (streamDestroyed) return; // Don't call if stream was already destroyed
       try {
-        await progressCallback(0, 0, safeTotal);
+        const initialProgress = safeTotal > 0 ? Math.floor((resumeFromCount / safeTotal) * 100) : 0;
+        await progressCallback(initialProgress, resumeFromCount, safeTotal);
       } catch (error) {
         // Handle cancellation errors in initial progress callback
         if (error.message.includes('cancelled')) {
