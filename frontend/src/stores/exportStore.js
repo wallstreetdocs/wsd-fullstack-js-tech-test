@@ -78,7 +78,7 @@ export const useExportStore = defineStore('exports', () => {
       const queryParams = { ...filters }
 
       // Start export job
-      const response = await apiClient.exportTasks(format, queryParams)
+      const response = await apiClient.exportTasks(format, queryParams, socket?.connected ? socket.id : null)
 
       // Store job ID for tracking
       const jobId = response.data.jobId
@@ -109,18 +109,17 @@ export const useExportStore = defineStore('exports', () => {
       // Set appropriate status based on error category
       if (categorizedError.category === ErrorCategory.NETWORK) {
         exportProgress.status = 'connection-error'
-        
-        // Create a temporary job ID so we can retry later if needed
-        if (!exportProgress.jobId) {
-          exportProgress.jobId = 'pending-' + Date.now()
-        }
+        exportProgress.active = false
       } else if (categorizedError.category === ErrorCategory.TIMEOUT) {
         exportProgress.status = 'timeout-error'
+        exportProgress.active = false
       } else if (categorizedError.category === ErrorCategory.SERVER) {
         exportProgress.status = 'server-error'
+        exportProgress.active = false
       } else {
         // For other errors
         exportProgress.status = 'failed'
+        exportProgress.active = false
       }
       
       // Still set the error value for internal tracking
@@ -243,6 +242,7 @@ export const useExportStore = defineStore('exports', () => {
     try {
       // Only emit pause event - JobStateManager handles state updates and broadcasts
       socket.emit('export:pause', { jobId })
+      exportProgress.status = 'paused'
     } catch (err) {
       console.error('Error pausing export:', err)
     }
@@ -261,6 +261,10 @@ export const useExportStore = defineStore('exports', () => {
     try {
       // Only emit resume event - JobStateManager handles state updates and broadcasts
       socket.emit('export:resume', { jobId })
+      // Immediately set status to processing to allow status updates
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'processing'
+      }
     } catch (err) {
       console.error('Error resuming export:', err)
     }
@@ -361,8 +365,10 @@ export const useExportStore = defineStore('exports', () => {
           exportProgress.error = null
         }
         
-        // Always update status
-        exportProgress.status = status
+        // Only update status if not paused (paused status should only be overridden by final states)
+        if (exportProgress.status !== 'paused') {
+          exportProgress.status = status
+        }
         
         // Always update progress - ensure it's a number between 0-100
         exportProgress.progress = Math.min(100, Math.max(0, progress || 0))
@@ -554,7 +560,10 @@ export const useExportStore = defineStore('exports', () => {
         if (job._id === exportProgress.jobId) {
           // Restore the active flag if it was previously active
           exportProgress.active = true
-          exportProgress.status = job.status
+          // Only update status if not currently paused (to prevent server overriding local pause)
+          if (exportProgress.status !== 'paused') {
+            exportProgress.status = job.status
+          }
           exportProgress.progress = job.progress
           exportProgress.processedItems = job.processedItems || 0
           
@@ -591,7 +600,10 @@ export const useExportStore = defineStore('exports', () => {
     socket.on('export:status', (data) => {
       if (data.jobId === exportProgress.jobId) {
         console.log(`Received export status update for job ${data.jobId}: ${data.status}`)
-        exportProgress.status = data.status
+        // Only update status if not currently paused (to prevent server overriding local pause)
+        if (exportProgress.status !== 'paused') {
+          exportProgress.status = data.status
+        }
         exportProgress.progress = data.progress
         
         // For completed jobs that were interrupted
@@ -631,11 +643,6 @@ export const useExportStore = defineStore('exports', () => {
   async function refreshExportStatus(jobId = exportProgress.jobId) {
     if (!jobId) return
     
-    // Skip refresh for temporary pending job IDs - they don't exist on the server
-    if (jobId.startsWith('pending-')) {
-      console.log(`Skipping refresh for temporary job ID: ${jobId}`)
-      return
-    }
     
     try {
       console.log(`Refreshing export status for job ${jobId}`)
@@ -645,7 +652,10 @@ export const useExportStore = defineStore('exports', () => {
         const jobData = response.data
         
         // Update the export progress
-        exportProgress.status = jobData.status
+        // Only update status if not currently paused (to prevent server overriding local pause)
+        if (exportProgress.status !== 'paused') {
+          exportProgress.status = jobData.status
+        }
         exportProgress.progress = jobData.progress
         exportProgress.processedItems = jobData.processedItems || 0
         

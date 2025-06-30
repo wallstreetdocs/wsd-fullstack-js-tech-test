@@ -145,8 +145,9 @@ class ExportHandler extends EventEmitter {
         }
 
         // If the job was in progress but stalled, attempt to resume it
-        if (job.status === 'processing' && Date.now() - job.updatedAt > 30000) {
-          console.log(`Detected stalled job ${jobId}, attempting to resume processing`);
+        // Increased timeout to 2 minutes to reduce false positives
+        if (job.status === 'processing' && Date.now() - job.updatedAt > 120000) {
+          console.log(`Detected stalled job ${jobId} (>2min), attempting to resume processing`);
 
           // Ensure client ID is up to date in case of reconnection
           job.clientId = socket.id;
@@ -188,8 +189,9 @@ class ExportHandler extends EventEmitter {
           }
 
           // If any jobs were processing during disconnect, they might need to be resumed
-          if (job.status === 'processing' && Date.now() - job.updatedAt > 30000) {
-            console.log(`Job ${job._id} appears stalled, queueing for processing`);
+          // Increased timeout to 2 minutes to reduce false positives
+          if (job.status === 'processing' && Date.now() - job.updatedAt > 120000) {
+            console.log(`Job ${job._id} appears stalled (>2min), queueing for processing`);
             await ExportService.resumeExportJob(job._id);
           }
         }

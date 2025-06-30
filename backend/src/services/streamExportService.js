@@ -111,18 +111,34 @@ class StreamExportService {
   createProgressStream(progressCallback, totalCount) {
     let processedCount = 0;
     let lastReportedProgress = 0;
+    let streamDestroyed = false;
     // We'll handle division by zero safely in the transform function
     const safeTotal = totalCount || 0; // Use actual count, even if zero
 
     // Always send an initial progress update with 0% but correct total
-    setTimeout(() => {
-      progressCallback(0, 0, safeTotal);
+    setTimeout(async () => {
+      if (streamDestroyed) return; // Don't call if stream was already destroyed
+      try {
+        await progressCallback(0, 0, safeTotal);
+      } catch (error) {
+        // Handle cancellation errors in initial progress callback
+        if (error.message.includes('cancelled')) {
+          streamDestroyed = true;
+        }
+      }
     }, 0);
 
     return new Transform({
       objectMode: true,
-      transform(chunk, encoding, callback) {
+      async transform(chunk, encoding, callback) {
         try {
+          // Check if stream was destroyed (cancelled)
+          if (streamDestroyed) {
+            // End the stream gracefully instead of throwing
+            this.destroy(new Error('Export job was cancelled'));
+            return;
+          }
+
           // Increment counter
           processedCount++;
 
@@ -137,8 +153,19 @@ class StreamExportService {
             processedCount % 5 === 0; // Every 5 items for all exports
 
           if (shouldReport) {
-            progressCallback(progress, processedCount, safeTotal);
-            lastReportedProgress = progress;
+            try {
+              await progressCallback(progress, processedCount, safeTotal);
+              lastReportedProgress = progress;
+            } catch (progressError) {
+              // If progress callback throws (e.g., job cancelled), stop processing
+              if (progressError.message.includes('cancelled')) {
+                streamDestroyed = true;
+                this.destroy(progressError);
+                return;
+              }
+              // For other progress errors, log but continue
+              console.error('[StreamExportService] Progress callback error:', progressError);
+            }
           }
 
           // Pass the chunk through unchanged
@@ -147,15 +174,25 @@ class StreamExportService {
           callback(error);
         }
       },
-      flush(callback) {
+      async flush(callback) {
         // Make sure we send a final progress update
-        if (processedCount > 0) {
-          progressCallback(100, processedCount, safeTotal);
-        } else {
-          // Handle edge case of empty result sets
-          progressCallback(100, 0, 0);
+        try {
+          if (processedCount > 0) {
+            await progressCallback(100, processedCount, safeTotal);
+          } else {
+            // Handle edge case of empty result sets
+            await progressCallback(100, 0, 0);
+          }
+          callback();
+        } catch (progressError) {
+          // If progress callback throws (e.g., job cancelled), stop processing
+          if (progressError.message.includes('cancelled')) {
+            return callback(progressError);
+          }
+          // For other progress errors, log but continue
+          console.error('[StreamExportService] Final progress callback error:', progressError);
+          callback();
         }
-        callback();
       }
     });
   }

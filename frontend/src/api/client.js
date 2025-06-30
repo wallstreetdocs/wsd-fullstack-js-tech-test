@@ -207,10 +207,11 @@ class ApiClient {
    * @param {Object} [filters={}] - Filter parameters (status, priority, sortBy, sortOrder)
    * @returns {Promise<Object>} Export job metadata with jobId
    */
-  async exportTasks(format, filters = {}) {
+  async exportTasks(format, filters = {}, clientId = null) {
     return this.post('/exportTasks', {
       format,
-      filters
+      filters,
+      clientId
     })
   }
 

@@ -356,14 +356,15 @@ router.get('/analytics', async (req, res, next) => {
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
-    const { format, filters } = req.body;
+    const { format, filters, clientId } = req.body;
 
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
 
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
       format: validatedFormat,
-      filters
+      filters,
+      clientId
     });
 
     res.status(202).json({

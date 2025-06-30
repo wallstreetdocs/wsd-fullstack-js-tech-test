@@ -74,9 +74,9 @@ class JobStateManager {
   async updateProgress(jobId, progress, processedItems, totalItems, source = 'worker') {
     const job = await ExportJob.findById(jobId);
     if (job) {
-      // Skip all progress updates for paused jobs
-      if (job.status === 'paused') return;
-      
+      // Skip all progress updates for paused or cancelled jobs
+      if (['paused', 'cancelled'].includes(job.status)) return;
+
       // Update job in database
       // Only set to 'processing' if not already paused/cancelled
       if (!['paused', 'cancelled'].includes(job.status)) {

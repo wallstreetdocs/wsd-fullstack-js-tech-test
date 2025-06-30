@@ -153,18 +153,35 @@ class ExportService extends EventEmitter {
       // For very large exports, use streaming with temp file storage
       if (useStreamingWithTempFile) {
         // Create progress tracking function for large exports
-        const progressCallback = (progress, processedItems, totalItems) => {
-          // Update progress through JobStateManager if available
-          if (this.jobStateManager) {
-            this.jobStateManager.updateProgress(
-              job._id.toString(),
-              progress,
-              processedItems,
-              totalItems,
-              'export-stream-progress'
-            ).catch(error => {
-              console.error('[ExportService] Error updating progress:', error);
-            });
+        const progressCallback = async (progress, processedItems, totalItems) => {
+          try {
+            // Check if job was cancelled before updating progress
+            const currentJob = await ExportJob.findById(job._id);
+            if (currentJob && currentJob.status === 'cancelled') {
+              // Stop processing by throwing an error that will be caught
+              throw new Error('Export job was cancelled');
+            }
+            
+            // Update progress through JobStateManager if available
+            if (this.jobStateManager) {
+              this.jobStateManager.updateProgress(
+                job._id.toString(),
+                progress,
+                processedItems,
+                totalItems,
+                'export-stream-progress'
+              ).catch(error => {
+                console.error('[ExportService] Error updating progress:', error);
+              });
+            }
+          } catch (error) {
+            // Properly handle the cancellation error
+            if (error.message.includes('cancelled')) {
+              // Signal the pipeline to stop
+              throw error;
+            } else {
+              console.error('[ExportService] Error in progress callback:', error);
+            }
           }
         };
 
@@ -183,12 +200,32 @@ class ExportService extends EventEmitter {
 
         // Wait for stream to finish
         await new Promise((resolve, reject) => {
-          taskStream
+          // Add error handlers to each stream to catch all errors
+          taskStream.on('error', reject);
+          progressStream.on('error', reject);
+          formatStream.on('error', reject);
+          writeStream.on('error', reject);
+
+          const pipeline = taskStream
             .pipe(progressStream)
             .pipe(formatStream)
-            .pipe(writeStream)
-            .on('finish', resolve)
-            .on('error', reject);
+            .pipe(writeStream);
+            
+          pipeline.on('finish', resolve);
+          pipeline.on('error', (error) => {
+            // Check if this is a cancellation error
+            if (error.message.includes('cancelled')) {
+              // Clean up temp file on cancellation
+              try {
+                if (fs.existsSync(tempFilePath)) {
+                  fs.unlinkSync(tempFilePath);
+                }
+              } catch (cleanupError) {
+                console.error('[ExportService] Error cleaning up temp file:', cleanupError);
+              }
+            }
+            reject(error);
+          });
         });
 
         // Get file size
@@ -264,24 +301,49 @@ class ExportService extends EventEmitter {
         });
       }
     } catch (error) {
-      console.error('[ExportService] Error processing export job:', error);
-      // Update job status to failed through JobStateManager
-      try {
-        if (this.jobStateManager) {
-          await this.jobStateManager.failJob(jobId, error.message);
+      // Check if this is a cancellation error
+      if (error.message.includes('cancelled')) {
+        // Don't log cancellation as an error - it's normal behavior
+        // Update job status to cancelled through JobStateManager
+        try {
+          if (this.jobStateManager) {
+            await this.jobStateManager.cancelJob(jobId, 'export-cancelled');
+          }
+        } catch (dbError) {
+          console.error('[ExportService] Error setting job cancelled status in DB:', dbError);
         }
-      } catch (dbError) {
-        console.error('[ExportService] Error setting job failed status in DB:', dbError);
-      }
 
-      // Fail the job in the queue
-      callback({
-        success: false,
-        error: {
-          message: error.message,
-          stack: error.stack
+        // Return cancellation result
+        callback({
+          success: false,
+          cancelled: true,
+          error: {
+            message: 'Export job was cancelled',
+            stack: error.stack
+          }
+        });
+      } else {
+        // Log actual errors (not cancellations)
+        console.error('[ExportService] Error processing export job:', error);
+        
+        // Update job status to failed through JobStateManager
+        try {
+          if (this.jobStateManager) {
+            await this.jobStateManager.failJob(jobId, error.message);
+          }
+        } catch (dbError) {
+          console.error('[ExportService] Error setting job failed status in DB:', dbError);
         }
-      });
+
+        // Fail the job in the queue
+        callback({
+          success: false,
+          error: {
+            message: error.message,
+            stack: error.stack
+          }
+        });
+      }
     }
   }
 
@@ -726,11 +788,22 @@ class ExportService extends EventEmitter {
   }
 
   /**
-   * Get export jobs for a client
+   * Get export jobs for a client with fallback for undefined clientId
    * @param {string} clientId - Client socket ID
    * @returns {Promise<Array>} Export jobs
    */
   async getClientExportJobs(clientId) {
+    if (!clientId) {
+      // Fallback: return recent active jobs from last hour when clientId is undefined
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      return ExportJob.find({
+        $or: [
+          { status: 'processing' },
+          { status: 'paused' },
+          { createdAt: { $gte: oneHourAgo } }
+        ]
+      }).sort({ createdAt: -1 }).limit(10);
+    }
     return ExportJob.find({ clientId }).sort({ createdAt: -1 });
   }
 
