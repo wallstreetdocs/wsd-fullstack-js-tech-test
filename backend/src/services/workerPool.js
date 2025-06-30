@@ -27,6 +27,7 @@ class WorkerPool extends EventEmitter {
     this.queue = [];
     this.activeWorkers = new Map(); // Track which workers are busy
     this.taskWorkerMap = new Map(); // Track taskId -> worker mapping for direct messaging
+    this.jobIdToTaskIdMap = new Map(); // Track jobId -> taskId mapping for cancellation
     this.numThreads = numThreads;
     this.initialized = false;
     this.isShuttingDown = false;
@@ -150,6 +151,14 @@ class WorkerPool extends EventEmitter {
       // Mark worker as free
       this.activeWorkers.delete(worker);
       this.taskWorkerMap.delete(taskId);
+      
+      // Clean up jobId mapping
+      for (const [jobId, mappedTaskId] of this.jobIdToTaskIdMap.entries()) {
+        if (mappedTaskId === taskId) {
+          this.jobIdToTaskIdMap.delete(jobId);
+          break;
+        }
+      }
 
       // Process next task if available
       if (!this.isShuttingDown) {
@@ -214,6 +223,14 @@ class WorkerPool extends EventEmitter {
 
       this.activeWorkers.delete(worker);
       this.taskWorkerMap.delete(taskId);
+      
+      // Clean up jobId mapping
+      for (const [jobId, mappedTaskId] of this.jobIdToTaskIdMap.entries()) {
+        if (mappedTaskId === taskId) {
+          this.jobIdToTaskIdMap.delete(jobId);
+          break;
+        }
+      }
 
       if (!this.isShuttingDown) {
         this.processNextTask();
@@ -309,6 +326,11 @@ class WorkerPool extends EventEmitter {
     // Mark this worker as busy with this task
     this.activeWorkers.set(availableWorker, task.id);
     this.taskWorkerMap.set(task.id, availableWorker);
+    
+    // Store jobId -> taskId mapping if this is an export task
+    if (task.data && task.data.jobId) {
+      this.jobIdToTaskIdMap.set(task.data.jobId, task.id);
+    }
 
     this.emit('task-started', {
       taskId: task.id,
@@ -359,17 +381,29 @@ class WorkerPool extends EventEmitter {
 
   /**
    * Send cancel signal to worker handling specific task
-   * @param {string} taskId - ID of the task to cancel
+   * @param {string} taskIdOrJobId - ID of the task to cancel (can be taskId or jobId)
    * @returns {boolean} - True if signal was sent, false if task/worker not found
    */
-  cancelTask(taskId) {
-    const worker = this.taskWorkerMap.get(taskId);
+  cancelTask(taskIdOrJobId) {
+    // First try direct taskId lookup
+    let worker = this.taskWorkerMap.get(taskIdOrJobId);
+    let actualTaskId = taskIdOrJobId;
+    
+    // If not found, try jobId -> taskId lookup
+    if (!worker) {
+      const mappedTaskId = this.jobIdToTaskIdMap.get(taskIdOrJobId);
+      if (mappedTaskId) {
+        worker = this.taskWorkerMap.get(mappedTaskId);
+        actualTaskId = mappedTaskId;
+      }
+    }
+    
     if (worker) {
       try {
-        worker.postMessage({ type: 'cancel', taskId });
+        worker.postMessage({ type: 'cancel', taskId: actualTaskId });
         return true;
       } catch (error) {
-        console.error(`Error sending cancel signal to worker for task ${taskId}:`, error);
+        console.error(`Error sending cancel signal to worker for task ${taskIdOrJobId}:`, error);
         return false;
       }
     }
@@ -424,6 +458,7 @@ class WorkerPool extends EventEmitter {
     this.workers = [];
     this.activeWorkers.clear();
     this.taskWorkerMap.clear();
+    this.jobIdToTaskIdMap.clear();
     this.initialized = false;
 
     this.emit('shutdown-complete');

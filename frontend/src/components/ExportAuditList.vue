@@ -35,16 +35,7 @@
         </template>
 
         <template #item.progress="{ item }">
-          <export-progress-bar
-            v-if="['processing', 'paused'].includes(item.status)"
-            :progress="item.progress"
-            :status="item.status"
-            :jobId="item._id"
-            :simple="true"
-            @pause="pauseExport"
-            @resume="resumeExport"
-          />
-          <span v-else>{{ item.progress }}%</span>
+          <span>{{ item.progress || 0 }}%</span>
         </template>
 
         <template #item.createdAt="{ item }">
@@ -182,9 +173,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useExportStore } from '../stores/exportStore'
-import ExportProgressBar from './ExportProgressBar.vue'
+import socket from '../plugins/socket.js'
 
 const exportStore = useExportStore()
 const search = ref('')
@@ -221,6 +212,17 @@ onMounted(async () => {
     console.error('Error in component:', err)
     loading.value = false
   }
+
+  // Set up socket listeners for real-time updates
+  setupSocketListeners()
+})
+
+onUnmounted(() => {
+  // Clean up socket listeners
+  socket.off('export:progress', handleExportProgress)
+  socket.off('export:completed', handleExportCompleted)
+  socket.off('export:failed', handleExportFailed)
+  socket.off('export:cancelled', handleExportCancelled)
 })
 
 function downloadExport(id) {
@@ -275,6 +277,76 @@ function formatDate(dateString) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
+}
+
+function setupSocketListeners() {
+  socket.on('export:progress', handleExportProgress)
+  socket.on('export:completed', handleExportCompleted)
+  socket.on('export:failed', handleExportFailed)
+  socket.on('export:cancelled', handleExportCancelled)
+}
+
+function handleExportProgress(data) {
+  const { jobId, status, progress } = data
+  // Find and update the job in our history
+  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
+  if (jobIndex !== -1) {
+    exportStore.exportHistory[jobIndex] = {
+      ...exportStore.exportHistory[jobIndex],
+      status,
+      progress
+    }
+  }
+}
+
+function handleExportCompleted(data) {
+  const { jobId, filename } = data
+  // Find and update the job in our history
+  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
+  if (jobIndex !== -1) {
+    exportStore.exportHistory[jobIndex] = {
+      ...exportStore.exportHistory[jobIndex],
+      status: 'completed',
+      progress: 100,
+      filename
+    }
+  } else {
+    // If job not in history, refresh the entire list
+    refreshHistory()
+  }
+}
+
+function handleExportFailed(data) {
+  const { jobId, error } = data
+  // Find and update the job in our history
+  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
+  if (jobIndex !== -1) {
+    exportStore.exportHistory[jobIndex] = {
+      ...exportStore.exportHistory[jobIndex],
+      status: 'failed',
+      error: error || 'Export failed'
+    }
+  }
+}
+
+function handleExportCancelled(data) {
+  const { jobId } = data
+  // Find and update the job in our history
+  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
+  if (jobIndex !== -1) {
+    exportStore.exportHistory[jobIndex] = {
+      ...exportStore.exportHistory[jobIndex],
+      status: 'cancelled'
+    }
+  }
+}
+
+async function refreshHistory() {
+  try {
+    await exportStore.getExportHistory()
+  } catch (err) {
+    console.error('Error refreshing export history:', err)
+  }
 }
 </script>
 

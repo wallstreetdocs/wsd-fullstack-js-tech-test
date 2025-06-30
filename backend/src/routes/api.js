@@ -360,20 +360,12 @@ router.post('/exportTasks', async (req, res, next) => {
 
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
 
-    console.log(`Export request - format: '${validatedFormat}'`);
-
     // Create an export job using the export service with validated format
     const exportJob = await ExportService.createExportJob({
       format: validatedFormat,
       filters
     });
 
-    console.log('Export job created:', {
-      jobId: exportJob._id,
-      format: validatedFormat
-    });
-
-    // All exports now use background processing for consistency and scalability
     res.status(202).json({
       success: true,
       data: {
@@ -383,7 +375,7 @@ router.post('/exportTasks', async (req, res, next) => {
       message: 'Export job created and queued for processing'
     });
 
-    // Notify clients via socket if available
+    // Notify clients via socket - consumed by notifications drawer (bell top right of the page)
     if (socketHandlers) {
       socketHandlers.broadcastNotification(
         `Export job started: ${validatedFormat.toUpperCase()} export`,

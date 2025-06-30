@@ -29,7 +29,6 @@ class ExportService extends EventEmitter {
    */
   setJobStateManager(jobStateManager) {
     this.jobStateManager = jobStateManager;
-    console.log('[ExportService] JobStateManager connected');
   }
 
   /**
@@ -47,7 +46,7 @@ class ExportService extends EventEmitter {
 
     // Set up event listeners
     jobQueue.on('process-job', async (jobRequest) => {
-      console.log('ESAMEEEEEEEEEEEEEEE');
+
       if (jobRequest.type === 'exportTasks') {
         await this.handleExportJobProcessing(jobRequest);
       }
@@ -142,11 +141,9 @@ class ExportService extends EventEmitter {
 
         return;
       }
-      console.log('MAYBE HERE');
-      // Check if this export will be too large for buffer storage
+
       const query = streamExportService.buildQueryFromFilters(job.filters);
       const totalCount = await Task.countDocuments(query);
-      console.log('WE HERE aaaaaaaaaa', totalCount);
 
       // Determine storage strategy based on estimated size
       const estimatedSize = this.estimateExportSize(totalCount, job.format);
@@ -226,7 +223,6 @@ class ExportService extends EventEmitter {
         });
       } else {
         // For smaller exports, use the worker pool with buffer storage
-        console.log(`[ExportService] Standard export (est. ${estimatedSize} bytes), using worker pool`);
 
         // Process the export in a worker thread
         const result = await workerPool.runTask('exportTasks', {
@@ -237,7 +233,6 @@ class ExportService extends EventEmitter {
 
         // Update job with the result from worker
         const { totalCount, result: fileContent, filename, format } = result;
-        console.log(`[ExportService] Worker returned format: ${format}, filename: ${filename}`);
 
         // Convert result to buffer if it's a string
         const resultBuffer = typeof fileContent === 'string'
@@ -276,7 +271,7 @@ class ExportService extends EventEmitter {
           await this.jobStateManager.failJob(jobId, error.message);
         }
       } catch (dbError) {
-        // Error handling for DB update failure
+        console.error('[ExportService] Error setting job failed status in DB:', dbError);
       }
 
       // Fail the job in the queue
@@ -299,20 +294,17 @@ class ExportService extends EventEmitter {
    * @returns {Promise<Object>} Created export job
    */
   async createExportJob(params) {
-    // Normalize the format to lowercase and validate
+
     const format = (params.format || 'csv').toLowerCase();
-    // Ensure format is one of the allowed values
     const validatedFormat = format === 'json' ? 'json' : 'csv';
 
     const { filters, clientId } = params;
 
-    // Build query to get export size
     const query = streamExportService.buildQueryFromFilters(filters);
 
-    // Get count of documents which match the query
     const totalCount = await Task.countDocuments(query);
-    console.log('TOTAL COUNTAS ', totalCount);
-    // Create the export job - all exports now use background processing
+
+    // Create the export job
     const exportJob = new ExportJob({
       format: validatedFormat,
       filters,
@@ -447,8 +439,7 @@ class ExportService extends EventEmitter {
 
       await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
     } catch (cacheError) {
-      console.error('[ExportService] Error caching temp file result:', cacheError);
-      // Non-critical operation, continue
+        console.error('[ExportService] Error caching temp file result:', cacheError);
     }
   }
 

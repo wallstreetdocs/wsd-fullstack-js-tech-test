@@ -64,7 +64,7 @@ export const useExportStore = defineStore('exports', () => {
       filters: filters,
       progress: 0,
       processedItems: 0,
-      totalItems: null, // Use null instead of 0 to indicate uninitialized state
+      totalItems: 0, // Initialize to 0 for better UI display
       error: null,
       errorCategory: null,
       errorRecoverable: false,
@@ -342,7 +342,7 @@ export const useExportStore = defineStore('exports', () => {
           active: true,
           progress: 0,
           processedItems: 0,
-          totalItems: null, // Use null to indicate uninitialized state
+          totalItems: 0, // Initialize to 0 instead of null for better UI display
           error: null,
           errorCategory: null,
           errorRecoverable: false,
@@ -367,19 +367,13 @@ export const useExportStore = defineStore('exports', () => {
         // Always update progress - ensure it's a number between 0-100
         exportProgress.progress = Math.min(100, Math.max(0, progress || 0))
         
-        // Ensure we have valid values for processedItems and totalItems
+        // Always update processedItems and totalItems if provided, even if they're 0
         if (processedItems !== undefined && processedItems !== null) {
           exportProgress.processedItems = Math.max(0, processedItems)
         }
         
-        // Always update totalItems if provided, even if it's 0
         if (totalItems !== undefined && totalItems !== null) {
-          exportProgress.totalItems = totalItems
-        }
-        
-        // If we have processedItems but totalItems is still null, use processedItems as totalItems
-        if (exportProgress.processedItems > 0 && exportProgress.totalItems === null) {
-          exportProgress.totalItems = exportProgress.processedItems
+          exportProgress.totalItems = Math.max(0, totalItems)
         }
         
         // Always keep the export active while we're receiving updates
@@ -502,6 +496,42 @@ export const useExportStore = defineStore('exports', () => {
     // We removed these handlers in favor of the global handlers in App.vue
     // that update the export state when needed. This is more centralized and cleaner.
 
+    // Export failed
+    socket.on('export:failed', (data) => {
+      const { jobId, error } = data
+      
+      // Update export progress if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'failed'
+        exportProgress.error = error || 'Export failed'
+        exportProgress.active = true // Keep visible for user to see the failure and retry
+      }
+
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = 'failed'
+        activeExports[jobId].error = error || 'Export failed'
+      }
+    })
+
+    // Export cancelled
+    socket.on('export:cancelled', (data) => {
+      const { jobId } = data
+      
+      // Update export progress if it's the current export
+      if (jobId === exportProgress.jobId) {
+        exportProgress.status = 'cancelled'
+        exportProgress.error = null // Clear any previous errors
+        exportProgress.active = true // Keep visible for user to see the cancellation
+      }
+
+      // Update in active exports list
+      if (activeExports[jobId]) {
+        activeExports[jobId].status = 'cancelled'
+        activeExports[jobId].error = null
+      }
+    })
+
     // Handle active exports on reconnection
     socket.on('export:active-jobs', (data) => {
 
@@ -531,8 +561,8 @@ export const useExportStore = defineStore('exports', () => {
           // Always update totalItems if the job provides it, regardless of value
           if (job.totalItems !== undefined && job.totalItems !== null) {
             exportProgress.totalItems = job.totalItems
-          } else if (exportProgress.totalItems === null) {
-            // Only set to 0 if we haven't received any totalItems yet
+          } else {
+            // Set to 0 if no totalItems provided
             console.log(`[ExportStore DEBUG] No totalItems in active job, setting to 0`);
             exportProgress.totalItems = 0;
           }
@@ -622,8 +652,8 @@ export const useExportStore = defineStore('exports', () => {
         // Always update totalItems if the job data provides it, regardless of value
         if (jobData.totalItems !== undefined && jobData.totalItems !== null) {
           exportProgress.totalItems = jobData.totalItems
-        } else if (exportProgress.totalItems === null) {
-          // Only set to 0 if we haven't received any totalItems yet
+        } else {
+          // Set to 0 if no totalItems provided
           console.log(`[ExportStore DEBUG] No totalItems in job data, setting to 0`);
           exportProgress.totalItems = 0;
         }

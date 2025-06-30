@@ -35,8 +35,9 @@ class JobStateManager {
       error: job.error
     };
 
-    // Single broadcast event for all status updates
+    // Broadcast both status and progress events for compatibility
     this.io.emit('export:status', statusEvent);
+    this.io.emit('export:progress', statusEvent);
 
     // Additional completion event for backward compatibility
     if (job.status === 'completed') {
@@ -44,6 +45,20 @@ class JobStateManager {
         jobId: job._id.toString(),
         filename: job.filename,
         totalItems: job.totalItems || job.processedItems || 0
+      });
+    }
+
+    // Additional specific events for failed and cancelled states
+    if (job.status === 'failed') {
+      this.io.emit('export:failed', {
+        jobId: job._id.toString(),
+        error: job.error
+      });
+    }
+
+    if (job.status === 'cancelled') {
+      this.io.emit('export:cancelled', {
+        jobId: job._id.toString()
       });
     }
   }
@@ -59,8 +74,14 @@ class JobStateManager {
   async updateProgress(jobId, progress, processedItems, totalItems, source = 'worker') {
     const job = await ExportJob.findById(jobId);
     if (job) {
+      // Skip all progress updates for paused jobs
+      if (job.status === 'paused') return;
+      
       // Update job in database
-      job.status = 'processing';
+      // Only set to 'processing' if not already paused/cancelled
+      if (!['paused', 'cancelled'].includes(job.status)) {
+        job.status = 'processing';
+      }
       job.progress = Math.min(100, Math.max(0, progress));
       job.processedItems = Math.max(0, processedItems);
       job.totalItems = Math.max(0, totalItems);
@@ -144,7 +165,7 @@ class JobStateManager {
    */
   async completeJob(jobId, filename, totalItems, source = 'worker') {
     const job = await ExportJob.findById(jobId);
-    if (job) {
+    if (job && job.status !== 'paused') {
       job.status = 'completed';
       job.progress = 100;
       job.processedItems = totalItems;

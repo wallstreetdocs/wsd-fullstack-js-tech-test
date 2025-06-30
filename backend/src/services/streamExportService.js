@@ -3,9 +3,8 @@
  * @module services/streamExportService
  */
 
-import { Readable, Transform } from 'stream';
+import { Transform } from 'stream';
 import Task from '../models/Task.js';
-import exportConfig from '../config/exportConfig.js';
 
 class StreamExportService {
   /**
