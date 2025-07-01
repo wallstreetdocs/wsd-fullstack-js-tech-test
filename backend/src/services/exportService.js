@@ -20,6 +20,7 @@ class ExportService extends EventEmitter {
   constructor() {
     super();
     this.jobStateManager = null; // Will be set by socket handlers
+    this.activePipelines = new Map(); // Store active streaming pipelines for pause capability
     this.initializeJobProcessing();
   }
 
@@ -220,8 +221,15 @@ class ExportService extends EventEmitter {
             .pipe(formatStream)
             .pipe(writeStream);
             
-          pipeline.on('finish', resolve);
+          // Store pipeline reference for pause capability
+          this.activePipelines.set(jobId, pipeline);
+            
+          pipeline.on('finish', () => {
+            this.activePipelines.delete(jobId);
+            resolve();
+          });
           pipeline.on('error', (error) => {
+            this.activePipelines.delete(jobId);
             // Check if this is a cancellation error
             if (error.message.includes('cancelled')) {
               // Clean up temp file on cancellation
@@ -716,6 +724,13 @@ class ExportService extends EventEmitter {
     const job = await ExportJob.findById(jobId);
     if (!job) {
       throw new Error('Export job not found');
+    }
+
+    // Destroy active streaming pipeline if exists
+    const activePipeline = this.activePipelines.get(jobId);
+    if (activePipeline) {
+      activePipeline.destroy();
+      this.activePipelines.delete(jobId);
     }
 
     if (job.status === 'processing') {
