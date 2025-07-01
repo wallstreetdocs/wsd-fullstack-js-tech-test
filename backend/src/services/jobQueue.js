@@ -363,6 +363,32 @@ class JobQueue extends EventEmitter {
   }
 
   /**
+   * Remove a job from the queue
+   * @param {string} jobId - Job ID to remove
+   * @returns {Promise<boolean>} True if job was removed, false if not found
+   */
+  async removeJob(jobId) {
+    try {
+      // Remove from active jobs if currently processing
+      this.activeJobs.delete(jobId);
+
+      // Remove from sorted set queue and job status in a transaction
+      const multi = redisClient.multi();
+      multi.zrem(this.queueName, jobId);
+      multi.del(`${this.jobStatusPrefix}${jobId}`);
+      
+      const results = await multi.exec();
+      
+      // Check if job was actually removed from the queue (first operation result)
+      const removedFromQueue = results && results[0] && results[0][1] > 0;
+      
+      return removedFromQueue;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Clean up completed and failed jobs older than the specified time
    * @param {number} [maxAge=86400000] - Maximum age in milliseconds (default: 24 hours)
    * @returns {Promise<number>} Number of jobs cleaned up
