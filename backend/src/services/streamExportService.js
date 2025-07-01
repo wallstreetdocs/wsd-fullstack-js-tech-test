@@ -128,8 +128,8 @@ class StreamExportService {
         const initialProgress = safeTotal > 0 ? Math.floor((resumeFromCount / safeTotal) * 100) : 0;
         await progressCallback(initialProgress, resumeFromCount, safeTotal);
       } catch (error) {
-        // Handle cancellation errors in initial progress callback
-        if (error.message.includes('cancelled')) {
+        // Handle cancellation and pause errors in initial progress callback
+        if (error.message.includes('cancelled') || error.message.includes('paused')) {
           streamDestroyed = true;
         }
       }
@@ -164,8 +164,8 @@ class StreamExportService {
               await progressCallback(progress, processedCount, safeTotal);
               lastReportedProgress = progress;
             } catch (progressError) {
-              // If progress callback throws (e.g., job cancelled), stop processing
-              if (progressError.message.includes('cancelled')) {
+              // If progress callback throws (e.g., job cancelled or paused), stop processing
+              if (progressError.message.includes('cancelled') || progressError.message.includes('paused')) {
                 streamDestroyed = true;
                 this.destroy(progressError);
                 return;
@@ -216,22 +216,15 @@ class StreamExportService {
     if (filters.status) query.status = filters.status;
     if (filters.priority) query.priority = filters.priority;
 
-    // Text search in title or description - optimized for performance
+    // Text search in title or description
+    // Performant alternative would be to implement Mongo indexes for tasks and use that for search
+    // But I didn't want to mess with Task Model
     if (filters.search) {
-      // Use text index if available, otherwise use optimized regex
       const searchTerm = filters.search.trim();
-      if (searchTerm.length > 2) {
-        query.$or = [
-          { title: { $regex: `^${searchTerm}`, $options: 'i' } },
-          { description: { $regex: `^${searchTerm}`, $options: 'i' } }
-        ];
-      } else {
-        // For short terms, use exact match to avoid performance issues
-        query.$or = [
-          { title: { $regex: searchTerm, $options: 'i' } },
-          { description: { $regex: searchTerm, $options: 'i' } }
-        ];
-      }
+      query.$or = [
+        { title: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } }
+      ];
     }
 
     // Date range filters
@@ -267,20 +260,6 @@ class StreamExportService {
     const sort = {};
     sort[filters.sortBy || 'createdAt'] = filters.sortOrder === 'asc' ? 1 : -1;
     return sort;
-  }
-
-  /**
-   * Count total tasks matching the query
-   * @param {Object} query - MongoDB query object
-   * @returns {Promise<number>} Total count of matching tasks
-   */
-  async countTasks(query) {
-    try {
-      return await Task.countDocuments(query);
-    } catch (error) {
-      console.error('Error counting tasks:', error);
-      throw error;
-    }
   }
 }
 

@@ -31,8 +31,6 @@ class JobQueue extends EventEmitter {
   async initialize() {
     if (this.initialized) return;
 
-    // Initialize the job queue system
-
     // Start processing jobs
     this.startProcessing();
 
@@ -58,17 +56,6 @@ class JobQueue extends EventEmitter {
 
     const priority = options.priority || 0;
     const timestamp = Date.now();
-
-    const jobInfo = {
-      id: jobId,
-      type: jobType,
-      data: jobData,
-      status: 'pending',
-      priority,
-      addedAt: timestamp,
-      attempts: 0,
-      maxAttempts: options.maxAttempts || 3
-    };
 
     // Store job details in Redis
     await redisClient.hset(
@@ -124,24 +111,21 @@ class JobQueue extends EventEmitter {
         return;
       }
 
-      // Get the next job from the queue (without removing it)
-      const nextJobs = await redisClient.zrange(this.queueName, 0, 0, 'WITHSCORES');
+      // get and zrem essentially, so works like a lock
+      const popped = await redisClient.zpopmin(this.queueName);
 
-      if (!nextJobs || nextJobs.length === 0) {
-        // No jobs in queue, wait and check again
+      if (!popped || popped.length < 2) {
+        // No jobs in queue
         setTimeout(() => this.processNextJob(), 1000);
         return;
       }
 
-      const jobId = nextJobs[0];
+      const jobId = popped[0]; // popped = [jobId, score]
 
       // Get job details
       const jobDetails = await redisClient.hgetall(`${this.jobStatusPrefix}${jobId}`);
 
       if (!jobDetails) {
-        // Job details not found, remove from queue
-        await redisClient.zrem(this.queueName, jobId);
-        // Continue processing
         this.processNextJob();
         return;
       }
@@ -151,16 +135,11 @@ class JobQueue extends EventEmitter {
       try {
         jobData = JSON.parse(jobDetails.data);
       } catch (error) {
-        // Remove job from queue
-        await redisClient.zrem(this.queueName, jobId);
         await redisClient.del(`${this.jobStatusPrefix}${jobId}`);
         // Continue processing
         this.processNextJob();
         return;
       }
-
-      // Remove job from queue
-      await redisClient.zrem(this.queueName, jobId);
 
       // Update job status to 'processing'
       await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {

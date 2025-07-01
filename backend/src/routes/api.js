@@ -74,6 +74,7 @@ router.get('/tasks', async (req, res, next) => {
     if (priority) query.priority = priority;
 
     // Text search in title or description
+    // This could be more efficient if we've added Mongo indexes for title/description
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: 'i' } },
@@ -441,7 +442,6 @@ router.get('/exportTasks/:id', async (req, res, next) => {
 router.get('/exportTasks/:id/download', async (req, res, next) => {
   try {
     const { id } = req.params;
-    console.log(`Download request for export job ${id}`);
 
     const exportJob = await ExportJob.findById(id);
 
@@ -453,8 +453,6 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
       });
     }
 
-    console.log(`Found export job ${id} with status: ${exportJob.status}, storageType: ${exportJob.storageType}`);
-
     if (exportJob.status !== 'completed') {
       console.error(`Export job ${id} status is ${exportJob.status}, not completed`);
       return res.status(400).json({
@@ -464,15 +462,11 @@ router.get('/exportTasks/:id/download', async (req, res, next) => {
     }
 
     try {
-      // Use the streamExportToResponse method to handle all storage types
       await ExportService.streamExportToResponse(id, res);
-
-      // Response already sent by streamExportToResponse
       return;
     } catch (streamError) {
       console.error(`Error streaming export ${id}:`, streamError);
 
-      // No fallback available
       return res.status(500).json({
         success: false,
         message: 'Error streaming export data',
