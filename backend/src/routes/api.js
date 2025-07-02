@@ -9,6 +9,7 @@ import ExportJob from '../models/ExportJob.js';
 import AnalyticsService from '../services/analyticsService.js';
 import ExportService from '../services/exportService.js';
 import { redisClient } from '../config/redis.js';
+import { buildQueryFromFilters, buildSortFromFilters } from '../utils/queryBuilder.js';
 
 const router = express.Router();
 
@@ -53,58 +54,12 @@ router.get('/tasks', async (req, res, next) => {
     const {
       page = 1,
       limit = 10,
-      status,
-      priority,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-      // Advanced filters
-      search,
-      createdAfter,
-      createdBefore,
-      completedAfter,
-      completedBefore,
-      estimatedTimeLt,
-      estimatedTimeGte
+      ...filters
     } = req.query;
 
-    const query = {};
-
-    // Basic filters
-    if (status) query.status = status;
-    if (priority) query.priority = priority;
-
-    // Text search in title or description
-    // This could be more efficient if we've added Mongo indexes for title/description
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Date range filters
-    if (createdAfter || createdBefore) {
-      query.createdAt = {};
-      if (createdAfter) query.createdAt.$gte = new Date(createdAfter);
-      if (createdBefore) query.createdAt.$lte = new Date(createdBefore);
-    }
-
-    // Completed date range filters
-    if (completedAfter || completedBefore) {
-      query.completedAt = {};
-      if (completedAfter) query.completedAt.$gte = new Date(completedAfter);
-      if (completedBefore) query.completedAt.$lte = new Date(completedBefore);
-    }
-
-    // Estimated time filters
-    if (estimatedTimeLt || estimatedTimeGte) {
-      query.estimatedTime = {};
-      if (estimatedTimeLt) query.estimatedTime.$lt = parseInt(estimatedTimeLt);
-      if (estimatedTimeGte) query.estimatedTime.$gte = parseInt(estimatedTimeGte);
-    }
-
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    // Use shared query builder utility
+    const query = buildQueryFromFilters(filters);
+    const sort = buildSortFromFilters(filters);
 
     const tasks = await Task.find(query)
       .sort(sort)

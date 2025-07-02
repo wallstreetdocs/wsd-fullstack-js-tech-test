@@ -95,7 +95,6 @@ class JobStateManager {
     if (job) {
       job.status = 'paused';
       job.processedItems = progress.processedItems || job.processedItems;
-      job.lastProcessedId = progress.lastProcessedId || job.lastProcessedId;
       job.updatedAt = new Date();
       await job.save();
       this.broadcastJobStatus(job, source);

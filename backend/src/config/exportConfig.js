@@ -9,13 +9,6 @@
  */
 const exportConfig = {
   /**
-   * Threshold in bytes for medium exports that will be stored as temp files
-   * Exports larger than this use temp file storage instead of memory buffers
-   * @type {number}
-   */
-  mediumExportThreshold: 5 * 1024 * 1024, // 5MB
-
-  /**
    * TTL for small export cache (in seconds)
    * @type {number}
    */

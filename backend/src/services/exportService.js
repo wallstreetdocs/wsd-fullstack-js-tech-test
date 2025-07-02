@@ -12,6 +12,7 @@ import ExportJob from '../models/ExportJob.js';
 import { redisClient } from '../config/redis.js';
 import jobQueue from './jobQueue.js';
 import streamExportService from './streamExportService.js';
+import { buildQueryFromFilters, buildSortFromFilters } from '../utils/queryBuilder.js';
 import exportConfig from '../config/exportConfig.js';
 import crypto from 'crypto';
 
@@ -95,7 +96,7 @@ class ExportService extends EventEmitter {
         await job.save();
 
         if (this.jobStateManager) {
-          await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
+          await this.jobStateManager.completeJob(jobId, cachedData.filename, cachedData.totalItems);
         }
 
         callback({
@@ -111,11 +112,11 @@ class ExportService extends EventEmitter {
         return;
       }
 
-      const query = streamExportService.buildQueryFromFilters(job.filters);
+      const query = buildQueryFromFilters(job.filters);
       const totalCount = await Task.countDocuments(query);
 
       // Use streaming with temp file for all exports (simplified unified approach)
-      const sort = streamExportService.buildSortFromFilters(job.filters);
+      const sort = buildSortFromFilters(job.filters);
 
       // Create progress tracking function for all exports
       const progressCallback = async (progress, processedItems, totalItems) => {
@@ -252,7 +253,7 @@ class ExportService extends EventEmitter {
       await job.save();
 
       if (this.jobStateManager) {
-        await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
+        await this.jobStateManager.completeJob(jobId, filename, totalCount);
       }
 
       // Cache the temp file path and metadata
@@ -343,7 +344,7 @@ class ExportService extends EventEmitter {
 
     const { filters, clientId } = params;
 
-    const query = streamExportService.buildQueryFromFilters(filters);
+    const query = buildQueryFromFilters(filters);
 
     const totalCount = await Task.countDocuments(query);
 

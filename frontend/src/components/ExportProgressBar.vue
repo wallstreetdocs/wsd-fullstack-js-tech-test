@@ -128,14 +128,12 @@ const exportProgress = computed(() => exportStore.exportProgress)
 
 // Visibility for progress bar
 const isVisible = computed(() => {
-  return props.visible || exportProgress.value.active
+  return props.visible || (exportProgress.value.jobId && ['pending', 'processing', 'paused', 'completed'].includes(exportProgress.value.status))
 })
 
-// Current export status with logging
+// Current export status
 const currentStatus = computed(() => {
-  const status = exportProgress.value.status;
-  console.log(`ExportProgressBar - status: ${status}, active: ${exportProgress.value.active}, jobId: ${exportProgress.value.jobId}`);
-  return status;
+  return exportProgress.value.status;
 })
 
 // Show accurate progress without artificial minimums or alterations
@@ -275,9 +273,10 @@ function handleDownloadExport(jobId) {
   // Use the direct store method like in the audit page
   exportStore.downloadExport(jobId)
   
-  // Reset active status (but keep details visible for a while)
+  // Clear export status after a delay to allow user to see completion
   window.setTimeout(() => {
-    exportStore.exportProgress.active = false
+    exportStore.exportProgress.status = null
+    exportStore.exportProgress.jobId = null
   }, 3000)
 }
 
@@ -293,7 +292,8 @@ function handleRetry() {
 }
 
 function closeExportProgress() {
-  exportStore.exportProgress.active = false
+  exportStore.exportProgress.status = null
+  exportStore.exportProgress.jobId = null
 }
 
 // Pause handler

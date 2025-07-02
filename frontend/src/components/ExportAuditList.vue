@@ -173,9 +173,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useExportStore } from '../stores/exportStore'
-import socket from '../plugins/socket.js'
 
 const exportStore = useExportStore()
 const search = ref('')
@@ -212,15 +211,8 @@ onMounted(async () => {
     console.error('Error in component:', err)
     loading.value = false
   }
-
-  // Set up socket listeners for real-time updates
-  setupSocketListeners()
 })
 
-onUnmounted(() => {
-  // Clean up socket listeners
-  socket.off('export:update', handleExportUpdate)
-})
 
 function downloadExport(id) {
   console.log('Download export ID:', id)
@@ -265,46 +257,20 @@ function getFormatColor(format) {
   return colorMap[format] || 'grey'
 }
 
+// Create date formatter once and reuse for better performance
+const dateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+})
+
 function formatDate(dateString) {
   const date = new Date(dateString)
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
+  return dateFormatter.format(date)
 }
 
-function setupSocketListeners() {
-  socket.on('export:update', handleExportUpdate)
-}
-
-function handleExportUpdate(data) {
-  const { jobId, status, progress, filename, error } = data
-  // Find and update the job in our history
-  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
-  if (jobIndex !== -1) {
-    exportStore.exportHistory[jobIndex] = {
-      ...exportStore.exportHistory[jobIndex],
-      status,
-      progress: progress || exportStore.exportHistory[jobIndex].progress,
-      filename: filename || exportStore.exportHistory[jobIndex].filename,
-      error: error || (status === 'completed' ? null : exportStore.exportHistory[jobIndex].error)
-    }
-  } else if (status === 'completed') {
-    // If job not in history and it's completed, refresh the entire list
-    refreshHistory()
-  }
-}
-
-async function refreshHistory() {
-  try {
-    await exportStore.getExportHistory()
-  } catch (err) {
-    console.error('Error refreshing export history:', err)
-  }
-}
 </script>
 
 <style scoped>

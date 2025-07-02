@@ -6,6 +6,7 @@
 import { Transform } from 'stream';
 import fs from 'fs';
 import Task from '../models/Task.js';
+import { buildQueryFromFilters, buildSortFromFilters } from '../utils/queryBuilder.js';
 
 class StreamExportService {
   /**
@@ -207,63 +208,6 @@ class StreamExportService {
     });
   }
 
-  /**
-   * Build a MongoDB query from filter parameters
-   * @param {Object} filters - Filter parameters
-   * @returns {Object} MongoDB query object
-   */
-  buildQueryFromFilters(filters) {
-    const query = {};
-
-    // Basic filters
-    if (filters.status) query.status = filters.status;
-    if (filters.priority) query.priority = filters.priority;
-
-    // Text search in title or description
-    // Performant alternative would be to implement Mongo indexes for tasks and use that for search
-    // But I didn't want to mess with Task Model
-    if (filters.search) {
-      const searchTerm = filters.search.trim();
-      query.$or = [
-        { title: { $regex: searchTerm, $options: 'i' } },
-        { description: { $regex: searchTerm, $options: 'i' } }
-      ];
-    }
-
-    // Date range filters
-    if (filters.createdAfter || filters.createdBefore) {
-      query.createdAt = {};
-      if (filters.createdAfter) query.createdAt.$gte = new Date(filters.createdAfter);
-      if (filters.createdBefore) query.createdAt.$lte = new Date(filters.createdBefore);
-    }
-
-    // Completed date range filters
-    if (filters.completedAfter || filters.completedBefore) {
-      query.completedAt = {};
-      if (filters.completedAfter) query.completedAt.$gte = new Date(filters.completedAfter);
-      if (filters.completedBefore) query.completedAt.$lte = new Date(filters.completedBefore);
-    }
-
-    // Estimated time filters
-    if (filters.estimatedTimeLt || filters.estimatedTimeGte) {
-      query.estimatedTime = {};
-      if (filters.estimatedTimeLt) query.estimatedTime.$lt = parseInt(filters.estimatedTimeLt);
-      if (filters.estimatedTimeGte) query.estimatedTime.$gte = parseInt(filters.estimatedTimeGte);
-    }
-
-    return query;
-  }
-
-  /**
-   * Build a MongoDB sort object from filter parameters
-   * @param {Object} filters - Filter parameters
-   * @returns {Object} MongoDB sort object
-   */
-  buildSortFromFilters(filters) {
-    const sort = {};
-    sort[filters.sortBy || 'createdAt'] = filters.sortOrder === 'asc' ? 1 : -1;
-    return sort;
-  }
 }
 
 export default new StreamExportService();

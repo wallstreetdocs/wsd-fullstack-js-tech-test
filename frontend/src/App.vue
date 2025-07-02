@@ -143,8 +143,8 @@ function removeSocketEventListeners() {
 function handleSocketConnect() {
   console.log('App: Socket connected event')
   
-  // When reconnected, refresh any active export
-  if (exportStore.exportProgress.active && exportStore.exportProgress.jobId) {
+  // When reconnected, refresh any ongoing export
+  if (exportStore.exportProgress.jobId && ['pending', 'processing', 'paused'].includes(exportStore.exportProgress.status)) {
     console.log('App: Refreshing export status after reconnection')
     
     // Clear any connection error messages
@@ -160,8 +160,8 @@ function handleSocketConnect() {
 function handleSocketDisconnect(event) {
   console.log(`App: Socket disconnected event: ${event.detail?.reason}`)
   
-  // Update any active export to show connection error
-  if (exportStore.exportProgress.active && exportStore.exportProgress.jobId) {
+  // Update any ongoing export to show connection error
+  if (exportStore.exportProgress.jobId && ['pending', 'processing', 'paused'].includes(exportStore.exportProgress.status)) {
     if (['processing', 'paused'].includes(exportStore.exportProgress.status)) {
       exportStore.exportProgress.status = 'connection-error'
     }
@@ -172,8 +172,8 @@ function handleSocketDisconnect(event) {
 function handleReconnectFailed() {
   console.log('App: Socket reconnection failed after all attempts')
   
-  // Update any active export to show permanent failure
-  if (exportStore.exportProgress.active) {
+  // Update any ongoing export to show permanent failure
+  if (exportStore.exportProgress.jobId && exportStore.exportProgress.status !== 'completed') {
     exportStore.exportProgress.error = 'Connection lost. Please try again later.'
   }
 }
