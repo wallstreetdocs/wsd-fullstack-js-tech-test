@@ -140,6 +140,19 @@ class ExportService extends EventEmitter {
             return { stopped: true, reason: currentJob.status, processedItems };
           }
           
+          // Save checkpoint every 1000 items
+          if (processedItems % 1000 === 0 || processedItems === totalItems) {
+            try {
+              const stats = fs.statSync(tempFilePath);
+              await ExportJob.findByIdAndUpdate(job._id, {
+                lastCheckpointItems: processedItems,
+                lastCheckpointFileSize: stats.size
+              });
+            } catch (checkpointError) {
+              console.error('[ExportService] Error saving checkpoint:', checkpointError);
+            }
+          }
+          
           // Update progress through JobStateManager if available
           if (this.jobStateManager) {
             this.jobStateManager.updateProgress(
@@ -166,9 +179,41 @@ class ExportService extends EventEmitter {
         ? job.tempFilePath 
         : path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
 
+      // Validate checkpoint and truncate file if needed
+      let resumeFromCount = job.processedItems || 0;
+      const isResuming = job.tempFilePath && fs.existsSync(job.tempFilePath);
+      
+      if (isResuming && job.lastCheckpointItems > 0) {
+        try {
+          const currentFileSize = fs.statSync(job.tempFilePath).size;
+          
+          // If file is larger than checkpoint, truncate to checkpoint
+          if (currentFileSize > job.lastCheckpointFileSize) {
+            console.log(`[ExportService] File size mismatch, truncating to checkpoint: ${job.lastCheckpointItems} items`);
+            fs.truncateSync(job.tempFilePath, job.lastCheckpointFileSize);
+            resumeFromCount = job.lastCheckpointItems;
+            
+            // Update job to reflect checkpoint position
+            job.processedItems = job.lastCheckpointItems;
+            await job.save();
+          }
+        } catch (checkpointError) {
+          console.error('[ExportService] Error validating checkpoint, restarting export:', checkpointError);
+          // If checkpoint validation fails, restart from beginning
+          if (fs.existsSync(job.tempFilePath)) {
+            fs.unlinkSync(job.tempFilePath);
+          }
+          resumeFromCount = 0;
+          job.processedItems = 0;
+          job.lastCheckpointItems = 0;
+          job.lastCheckpointFileSize = 0;
+          await job.save();
+        }
+      }
+
       // Stream data to file - append if resuming, otherwise create new
       const writeStream = fs.createWriteStream(tempFilePath, { 
-        flags: (job.tempFilePath && fs.existsSync(job.tempFilePath)) ? 'a' : 'w' 
+        flags: isResuming ? 'a' : 'w' 
       });
 
       // Save temp file path immediately for resume capability
@@ -176,12 +221,9 @@ class ExportService extends EventEmitter {
         job.tempFilePath = tempFilePath;
         await job.save();
       }
-
-      // Get resume information for streaming exports
-      const resumeFromCount = job.processedItems || 0;
       
-      // Determine if we're appending to existing file
-      const isAppending = job.tempFilePath && fs.existsSync(job.tempFilePath);
+      // Determine if we're appending to existing file (use the isResuming flag we already calculated)
+      const isAppending = isResuming;
       
       // For JSON files, prepare the existing file for appending
       if (isAppending && job.format === 'json') {

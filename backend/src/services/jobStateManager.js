@@ -22,7 +22,6 @@ class JobStateManager {
   broadcastJobStatus(job, source = 'unknown') {
     if (!job) return;
 
-    console.log(`[JobStateManager] Broadcasting job status: ${job._id}, status=${job.status}, source=${source}`);
 
     // Create unified status event with all needed data
     const statusEvent = {
