@@ -304,7 +304,6 @@ export const useExportStore = defineStore('exports', () => {
       return response.data
     } catch (err) {
       error.value = err.message
-      console.error('Error fetching export history:', err)
       throw err
     } finally {
       loading.value = false

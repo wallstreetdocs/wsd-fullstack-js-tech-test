@@ -178,7 +178,7 @@ class JobQueue extends EventEmitter {
    */
   async handleJobCompletion(jobId, result) {
     try {
-      const { success, error, data, paused, progress } = result;
+      const { success, error, data, paused, progress, cancelled } = result;
 
       // Remove from active jobs
       this.activeJobs.delete(jobId);
@@ -203,6 +203,16 @@ class JobQueue extends EventEmitter {
 
         // Emit paused event
         this.emit('job-paused', { id: jobId, progress });
+      } else if (cancelled) {
+        // Update job status to 'cancelled'
+        await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {
+          status: 'cancelled',
+          cancelledAt: Date.now(),
+          error: error?.message || 'Export cancelled'
+        });
+
+        // Emit cancelled event
+        this.emit('job-cancelled', { id: jobId, error });
       } else {
         // Update job status to 'failed'
         await redisClient.hset(`${this.jobStatusPrefix}${jobId}`, {

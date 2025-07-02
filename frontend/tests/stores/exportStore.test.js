@@ -100,7 +100,7 @@ describe('Export Store', () => {
     
     await exportStore.exportTasks(format, filters)
     
-    expect(mockApiClient.exportTasks).toHaveBeenCalledWith(format, filters, null)
+    expect(mockApiClient.exportTasks).toHaveBeenCalledWith(format, { ...filters, refreshCache: false }, null)
     expect(exportStore.exportProgress.jobId).toBe('job-123')
     expect(exportStore.exportProgress.format).toBe('csv')
     expect(exportStore.exportProgress.status).toBe('processing')

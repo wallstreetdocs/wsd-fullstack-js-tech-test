@@ -128,7 +128,7 @@ const exportProgress = computed(() => exportStore.exportProgress)
 
 // Visibility for progress bar
 const isVisible = computed(() => {
-  return props.visible || (exportProgress.value.jobId && ['pending', 'processing', 'paused', 'completed'].includes(exportProgress.value.status))
+  return props.visible || (exportProgress.value.jobId && ['pending', 'processing', 'paused', 'completed', 'cancelled'].includes(exportProgress.value.status))
 })
 
 // Current export status

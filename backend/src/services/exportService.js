@@ -224,7 +224,7 @@ class ExportService extends EventEmitter {
             console.error('[ExportService] Error cleaning up temp file:', cleanupError);
           }
           
-          callback({ success: false, error: new Error('Export cancelled') });
+          callback({ success: false, cancelled: true, error: new Error('Export cancelled') });
         } else if (result.reason === 'paused') {
           // Keep temp file for paused exports and signal pause with current progress
           callback({ 
