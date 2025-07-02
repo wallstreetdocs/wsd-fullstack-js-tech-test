@@ -177,6 +177,16 @@
                 ></v-text-field>
               </v-col>
             </v-row>
+
+            <v-row v-if="enableExport">
+              <v-col cols="12">
+                <v-checkbox
+                  v-model="filters.refreshCache"
+                  label="Refresh export cache (ignore cached results)"
+                  hide-details
+                ></v-checkbox>
+              </v-col>
+            </v-row>
           </div>
         </v-expand-transition>
       </v-card-text>
@@ -324,7 +334,8 @@ const filters = reactive({
   createdBefore: '',
   completedAfter: '',
   completedBefore: '',
-  estimatedTimeRange: null // This will be transformed to estimatedTimeLt/estimatedTimeGte
+  estimatedTimeRange: null, // This will be transformed to estimatedTimeLt/estimatedTimeGte
+  refreshCache: false // Export-only flag to refresh cache
 })
 
 const statusOptions = [
@@ -367,6 +378,10 @@ function updateFilters() {
 // Transform filters into API-compatible format for export
 function transformFiltersForExport() {
   const transformed = { ...filters }
+
+  // Extract refreshCache flag separately - it's not a mongo filter
+  const refreshCache = filters.refreshCache
+  delete transformed.refreshCache
 
   // Convert date strings to ISO format
   if (filters.createdAfter) {
@@ -424,7 +439,7 @@ function transformFiltersForExport() {
     }
   })
 
-  return transformed
+  return { filters: transformed, refreshCache }
 }
 
 function editTask(task) {
@@ -493,10 +508,10 @@ function formatDate(date) {
 async function exportTasks(format) {
   try {
     // Use the filter transformation for export
-    const cleanedFilters = transformFiltersForExport()
+    const { filters: cleanedFilters, refreshCache } = transformFiltersForExport()
 
-    // Use transformed and cleaned filters
-    await exportStore.exportTasks(format, cleanedFilters)
+    // Use transformed and cleaned filters with refresh cache flag
+    await exportStore.exportTasks(format, cleanedFilters, refreshCache)
     
   } catch (error) {
     console.error('Export failed to start:', error)

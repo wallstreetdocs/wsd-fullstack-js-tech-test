@@ -116,6 +116,10 @@ const exportJobSchema = new mongoose.Schema(
       type: String,
       required: false
     },
+    refreshCache: {
+      type: Boolean,
+      default: false
+    },
   },
   {
     timestamps: true

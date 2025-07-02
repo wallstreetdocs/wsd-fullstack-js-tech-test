@@ -312,7 +312,7 @@ router.get('/analytics', async (req, res, next) => {
  */
 router.post('/exportTasks', async (req, res, next) => {
   try {
-    const { format, filters, clientId } = req.body;
+    const { format, filters, clientId, refreshCache } = req.body;
 
     const validatedFormat = format.toLowerCase() === 'json' ? 'json' : 'csv';
 
@@ -320,7 +320,8 @@ router.post('/exportTasks', async (req, res, next) => {
     const exportJob = await ExportService.createExportJob({
       format: validatedFormat,
       filters,
-      clientId
+      clientId,
+      refreshCache
     });
 
     res.status(202).json({

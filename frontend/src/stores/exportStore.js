@@ -50,9 +50,10 @@ export const useExportStore = defineStore('exports', () => {
    * @function exportTasks
    * @param {string} format - Export format ('csv' or 'json')
    * @param {Object} filters - Filter parameters for tasks to export
+   * @param {boolean} refreshCache - Whether to refresh cached results
    * @returns {Promise<Object>} Export job metadata
    */
-  async function exportTasks(format, filters = {}) {
+  async function exportTasks(format, filters = {}, refreshCache = false) {
     loading.value = true
     error.value = null
     
@@ -74,7 +75,7 @@ export const useExportStore = defineStore('exports', () => {
 
     try {
       // Filters are already cleaned by the calling component
-      const queryParams = { ...filters }
+      const queryParams = { ...filters, refreshCache }
 
       // Start export job
       const response = await apiClient.exportTasks(format, queryParams, socket?.connected ? socket.id : null)

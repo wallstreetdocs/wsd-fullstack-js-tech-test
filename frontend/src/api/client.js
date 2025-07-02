@@ -204,14 +204,17 @@ class ApiClient {
    * Starts a background task export process
    * @async
    * @param {string} format - Export format ('csv' or 'json')
-   * @param {Object} [filters={}] - Filter parameters (status, priority, sortBy, sortOrder)
+   * @param {Object} [params={}] - Export parameters including filters and refreshCache
+   * @param {string} [clientId=null] - Client socket ID for tracking
    * @returns {Promise<Object>} Export job metadata with jobId
    */
-  async exportTasks(format, filters = {}, clientId = null) {
+  async exportTasks(format, params = {}, clientId = null) {
+    const { refreshCache, ...filters } = params;
     return this.post('/exportTasks', {
       format,
       filters,
-      clientId
+      clientId,
+      refreshCache
     })
   }
 

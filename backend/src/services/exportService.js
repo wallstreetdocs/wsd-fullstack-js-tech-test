@@ -81,9 +81,16 @@ class ExportService extends EventEmitter {
         await this.jobStateManager.updateProgress(jobId, 0, 0, 0, 'job-processing');
       }
 
-      // Check cache first
+      // Check cache first (skip if refreshCache is true)
       const cacheKey = this.generateCacheKey(job);
-      const cachedResult = await redisClient.get(cacheKey);
+      let cachedResult = null;
+      
+      if (job.refreshCache) {
+        // Invalidate existing cache entry for this job
+        await redisClient.del(cacheKey);
+      } else {
+        cachedResult = await redisClient.get(cacheKey);
+      }
 
       if (cachedResult) {
         const cachedData = JSON.parse(cachedResult);
@@ -319,6 +326,7 @@ class ExportService extends EventEmitter {
    * @param {string} params.format - Export format ('csv' or 'json')
    * @param {Object} params.filters - Filter parameters
    * @param {string} [params.clientId] - Client socket ID for tracking
+   * @param {boolean} [params.refreshCache] - Whether to bypass cache
    * @returns {Promise<Object>} Created export job
    */
   async createExportJob(params) {
@@ -326,7 +334,7 @@ class ExportService extends EventEmitter {
     const format = (params.format || 'csv').toLowerCase();
     const validatedFormat = format === 'json' ? 'json' : 'csv';
 
-    const { filters, clientId } = params;
+    const { filters, clientId, refreshCache = false } = params;
 
     const query = buildQueryFromFilters(filters);
 
@@ -337,6 +345,7 @@ class ExportService extends EventEmitter {
       format: validatedFormat,
       filters,
       clientId,
+      refreshCache,
       status: 'pending',
       totalItems: totalCount,
       processedItems: 0
