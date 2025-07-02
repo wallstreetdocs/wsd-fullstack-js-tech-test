@@ -11,7 +11,6 @@ import Task from '../models/Task.js';
 import ExportJob from '../models/ExportJob.js';
 import { redisClient } from '../config/redis.js';
 import jobQueue from './jobQueue.js';
-import workerPool from './workerPool.js';
 import streamExportService from './streamExportService.js';
 import exportConfig from '../config/exportConfig.js';
 import crypto from 'crypto';
@@ -20,7 +19,6 @@ class ExportService extends EventEmitter {
   constructor() {
     super();
     this.jobStateManager = null; // Will be set by socket handlers
-    this.activePipelines = new Map(); // Store active streaming pipelines for pause capability
     this.initializeJobProcessing();
   }
 
@@ -40,11 +38,6 @@ class ExportService extends EventEmitter {
     // Initialize job queue
     jobQueue.initialize();
 
-    // Initialize worker pool if not already initialized
-    if (!workerPool.initialized) {
-      workerPool.initialize();
-    }
-
     // Set up event listeners
     jobQueue.on('process-job', async (jobRequest) => {
 
@@ -53,37 +46,8 @@ class ExportService extends EventEmitter {
       }
     });
 
-    // Set up worker progress event listener
-    workerPool.on('job-progress', (message) => {
-      if (message && message.jobId) {
-        this.handleProgressUpdate(message);
-      }
-    });
   }
 
-  /**
-   * Handle progress updates from worker threads
-   * @private
-   * @param {Object} progressData - Progress data from worker
-   */
-  async handleProgressUpdate(progressData) {
-    const { jobId, progress, processedItems, totalItems } = progressData;
-
-    try {
-      // Route all progress updates through JobStateManager
-      if (this.jobStateManager) {
-        await this.jobStateManager.updateProgress(
-          jobId,
-          progress || 0,
-          processedItems || 0,
-          totalItems || 0,
-          'worker-progress'
-        );
-      }
-    } catch (error) {
-      // Error handling is done, no need to log
-    }
-  }
 
   /**
    * Handle export job processing
@@ -98,6 +62,17 @@ class ExportService extends EventEmitter {
       const job = await ExportJob.findById(jobId);
       if (!job) {
         throw new Error(`Export job ${jobId} not found`);
+      }
+
+      // Don't process paused or cancelled jobs
+      if (job.status === 'paused') {
+        callback({ paused: true, progress: { processedItems: job.processedItems, lastProcessedId: job.lastProcessedId } });
+        return;
+      }
+
+      if (job.status === 'cancelled') {
+        callback({ success: false, error: new Error('Export job was cancelled') });
+        return;
       }
 
       // Update job status to processing through JobStateManager
@@ -146,179 +121,148 @@ class ExportService extends EventEmitter {
       const query = streamExportService.buildQueryFromFilters(job.filters);
       const totalCount = await Task.countDocuments(query);
 
-      // Determine storage strategy based on estimated size
-      const estimatedSize = this.estimateExportSize(totalCount, job.format);
-      const useStreamingWithTempFile = estimatedSize > exportConfig.mediumExportThreshold;
+      // Use streaming with temp file for all exports (simplified unified approach)
       const sort = streamExportService.buildSortFromFilters(job.filters);
 
-      // For very large exports, use streaming with temp file storage
-      if (useStreamingWithTempFile) {
-        // Create progress tracking function for large exports
-        const progressCallback = async (progress, processedItems, totalItems) => {
-          try {
-            // Check if job was cancelled before updating progress
-            const currentJob = await ExportJob.findById(job._id);
-            if (currentJob && currentJob.status === 'cancelled') {
-              // Stop processing by throwing an error that will be caught
-              throw new Error('Export job was cancelled');
-            }
-            
-            // Update progress through JobStateManager if available
-            if (this.jobStateManager) {
-              this.jobStateManager.updateProgress(
-                job._id.toString(),
-                progress,
-                processedItems,
-                totalItems,
-                'export-stream-progress'
-              ).catch(error => {
-                console.error('[ExportService] Error updating progress:', error);
+      // Create progress tracking function for all exports
+      const progressCallback = async (progress, processedItems, totalItems, lastTaskId) => {
+        try {
+          // Check if job was cancelled or paused before updating progress
+          const currentJob = await ExportJob.findById(job._id);
+          if (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'paused')) {
+            // Save cursor position for resume
+            if (lastTaskId) {
+              await ExportJob.findByIdAndUpdate(job._id, { 
+                lastProcessedId: lastTaskId,
+                processedItems 
               });
             }
-          } catch (error) {
-            // Properly handle the cancellation error
-            if (error.message.includes('cancelled')) {
-              // Signal the pipeline to stop
-              throw error;
-            } else {
-              console.error('[ExportService] Error in progress callback:', error);
-            }
+            
+            // Return status signal instead of throwing error
+            return { stopped: true, reason: currentJob.status, processedItems, lastTaskId };
           }
-        };
-
-        // Create temp file path
-        const tempFilePath = path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
-
-        // Stream data to file
-        const writeStream = fs.createWriteStream(tempFilePath);
-
-        // Get resume information for streaming exports
-        const resumeFromCount = job.processedItems || 0;
-        const isResuming = resumeFromCount > 0;
-        
-        // Create streams with resume capability
-        const taskStream = streamExportService.createTaskStream(query, sort, resumeFromCount);
-        const progressStream = streamExportService.createProgressStream(progressCallback, totalCount, resumeFromCount);
-        const formatStream = job.format === 'json'
-          ? streamExportService.createJsonTransform()
-          : streamExportService.createCsvTransform();
           
-        // Log resume information
-        if (isResuming) {
-          console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount}`);
-        }
-
-        // Wait for stream to finish
-        await new Promise((resolve, reject) => {
-          // Add error handlers to each stream to catch all errors
-          taskStream.on('error', reject);
-          progressStream.on('error', reject);
-          formatStream.on('error', reject);
-          writeStream.on('error', reject);
-
-          const pipeline = taskStream
-            .pipe(progressStream)
-            .pipe(formatStream)
-            .pipe(writeStream);
-            
-          // Store pipeline reference for pause capability
-          this.activePipelines.set(jobId, pipeline);
-            
-          pipeline.on('finish', () => {
-            this.activePipelines.delete(jobId);
-            resolve();
-          });
-          pipeline.on('error', (error) => {
-            this.activePipelines.delete(jobId);
-            // Check if this is a cancellation error
-            if (error.message.includes('cancelled')) {
-              // Clean up temp file on cancellation
-              try {
-                if (fs.existsSync(tempFilePath)) {
-                  fs.unlinkSync(tempFilePath);
-                }
-              } catch (cleanupError) {
-                console.error('[ExportService] Error cleaning up temp file:', cleanupError);
-              }
-            }
-            reject(error);
-          });
-        });
-
-        // Get file size
-        const stats = fs.statSync(tempFilePath);
-        const fileSize = stats.size;
-
-        // Generate filename
-        const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
-
-        // Update job with temp file info
-        job.tempFilePath = tempFilePath;
-        job.filename = filename;
-        job.fileSize = fileSize;
-        job.storageType = 'tempFile';
-        await job.save();
-
-        if (this.jobStateManager) {
-          await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
-        }
-
-        // Cache the temp file path and metadata
-        await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
-
-        callback({
-          success: true,
-          data: {
-            jobId,
-            status: 'completed',
-            progress: 100,
-            filename
+          // Update progress through JobStateManager if available
+          if (this.jobStateManager) {
+            this.jobStateManager.updateProgress(
+              job._id.toString(),
+              progress,
+              processedItems,
+              totalItems,
+              'export-stream-progress'
+            ).catch(error => {
+              console.error('[ExportService] Error updating progress:', error);
+            });
           }
-        });
-      } else {
-        // For smaller exports, use the worker pool with buffer storage
-
-        // Process the export in a worker thread
-        const result = await workerPool.runTask('exportTasks', {
-          format: job.format,
-          filters: job.filters,
-          jobId: job._id.toString()
-        });
-
-        // Update job with the result from worker
-        const { totalCount, result: fileContent, filename, format } = result;
-
-        // Convert result to buffer if it's a string
-        const resultBuffer = typeof fileContent === 'string'
-          ? Buffer.from(fileContent, 'utf-8')
-          : fileContent;
-
-        // Complete the job
-        job.result = resultBuffer;
-        job.filename = filename;
-        job.storageType = 'buffer';
-        job.fileSize = resultBuffer.length;
-        await job.save();
-
-        if (this.jobStateManager) {
-          await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
-        }
-
-        // Cache the result for future identical exports
-        await this.cacheBufferResult(cacheKey, totalCount, resultBuffer, filename);
-
-        callback({
-          success: true,
-          data: {
-            jobId,
-            status: 'completed',
-            progress: 100,
-            filename
+        } catch (error) {
+          if (error.message.includes('cancelled') || error.message.includes('paused')) {
+            throw error;
+          } else {
+            console.error('[ExportService] Error in progress callback:', error);
           }
-        });
+        }
+      };
+
+      // Create temp file path
+      const tempFilePath = path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
+
+      // Stream data to file
+      const writeStream = fs.createWriteStream(tempFilePath);
+
+      // Get resume information for streaming exports
+      const resumeFromCount = job.processedItems || 0;
+      const lastProcessedId = job.lastProcessedId || null;
+      const isResuming = lastProcessedId || resumeFromCount > 0;
+      
+      // Create streams with cursor-based resume capability
+      const taskStream = streamExportService.createTaskStream(query, sort, lastProcessedId);
+      const progressStream = streamExportService.createProgressStream(progressCallback, totalCount, resumeFromCount);
+      const formatStream = job.format === 'json'
+        ? streamExportService.createJsonTransform()
+        : streamExportService.createCsvTransform();
+        
+      // Log resume information
+      if (isResuming) {
+        console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount}, cursor: ${lastProcessedId}`);
       }
+
+      // Wait for stream to finish
+      const result = await new Promise((resolve, reject) => {
+        const pipeline = taskStream
+          .pipe(progressStream)
+          .pipe(formatStream)
+          .pipe(writeStream);
+          
+        // Store resolver so progressStream can trigger completion
+        progressStream._pipelineResolver = resolve;
+          
+        pipeline.on('finish', () => resolve({ completed: true }));
+        pipeline.on('error', (error) => {
+          // For actual errors, reject normally
+          reject(error);
+        });
+      });
+
+      // Check if export was stopped (paused/cancelled)
+      if (result.stopped) {
+        console.log(`[ExportService] Export ${result.reason}, cleaning up appropriately`);
+        
+        if (result.reason === 'cancelled') {
+          // Clean up temp file for cancelled exports
+          try {
+            if (fs.existsSync(tempFilePath)) {
+              fs.unlinkSync(tempFilePath);
+            }
+          } catch (cleanupError) {
+            console.error('[ExportService] Error cleaning up temp file:', cleanupError);
+          }
+          
+          callback({ success: false, error: new Error('Export cancelled') });
+        } else if (result.reason === 'paused') {
+          // Keep temp file for paused exports and signal pause with current progress
+          callback({ 
+            paused: true, 
+            progress: { 
+              processedItems: result.processedItems || job.processedItems, 
+              lastProcessedId: result.lastProcessedId || job.lastProcessedId 
+            } 
+          });
+        }
+        return;
+      }
+
+      // Get file size
+      const stats = fs.statSync(tempFilePath);
+      const fileSize = stats.size;
+
+      // Generate filename
+      const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
+
+      // Update job with temp file info
+      job.tempFilePath = tempFilePath;
+      job.filename = filename;
+      job.fileSize = fileSize;
+      job.storageType = 'tempFile';
+      await job.save();
+
+      if (this.jobStateManager) {
+        await this.jobStateManager.completeJob(jobId, totalCount, totalCount);
+      }
+
+      // Cache the temp file path and metadata
+      await this.cacheTempFileResult(cacheKey, totalCount, tempFilePath, filename, fileSize);
+
+      callback({
+        success: true,
+        data: {
+          jobId,
+          status: 'completed',
+          progress: 100,
+          filename
+        }
+      });
     } catch (error) {
-      // Check if this is a cancellation error
+      // Check if this is a cancellation or pause error
       if (error.message.includes('cancelled')) {
         // Don't log cancellation as an error - it's normal behavior
         // Update job status to cancelled through JobStateManager
@@ -336,6 +280,20 @@ class ExportService extends EventEmitter {
           cancelled: true,
           error: {
             message: 'Export job was cancelled',
+            stack: error.stack
+          }
+        });
+      } else if (error.message.includes('paused')) {
+        // Don't log pause as an error - it's normal behavior
+        // Job status is already updated to paused by the progress callback
+        console.log(`[ExportService] Export job ${jobId} was paused gracefully`);
+
+        // Return pause result
+        callback({
+          success: false,
+          paused: true,
+          error: {
+            message: 'Export job was paused',
             stack: error.stack
           }
         });
@@ -409,21 +367,6 @@ class ExportService extends EventEmitter {
     return exportJob;
   }
 
-  /**
-   * Estimate the size of an export based on item count and format
-   * @param {number} count - Number of items
-   * @param {string} format - Export format
-   * @returns {number} Estimated size in bytes
-   */
-  estimateExportSize(count, format) {
-    // Average size per task in bytes (empirical estimates)
-    const avgSizePerTask = format === 'json' ? 500 : 250;
-
-    // Add overhead for format-specific wrappers
-    const overhead = format === 'json' ? 50 : 100;
-
-    return (count * avgSizePerTask) + overhead;
-  }
 
   /**
    * Generate a cache key for an export job based on its parameters
@@ -467,32 +410,6 @@ class ExportService extends EventEmitter {
       : exportConfig.smallExportCacheTTL;
   }
 
-  /**
-   * Cache export buffer result for future use
-   * @private
-   * @param {string} cacheKey - Cache key
-   * @param {number} totalCount - Total items count
-   * @param {Buffer} result - Export result buffer
-   * @param {string} filename - Export filename
-   * @returns {Promise<void>}
-   */
-  async cacheBufferResult(cacheKey, totalCount, result, filename) {
-    try {
-      const cacheTTL = this.getCacheTTL(totalCount);
-
-      const cacheData = {
-        totalItems: totalCount,
-        result: result.toString('base64'),
-        filename: filename,
-        storageType: 'buffer'
-      };
-
-      await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
-    } catch (cacheError) {
-      console.error('[ExportService] Error caching buffer result:', cacheError);
-      // Non-critical operation, continue
-    }
-  }
 
   /**
    * Cache temp file path and metadata for future use
@@ -716,7 +633,7 @@ class ExportService extends EventEmitter {
   }
 
   /**
-   * Pause an export job (only handles worker signaling, state managed by JobStateManager)
+   * Pause an export job (simplified - status check handles pause naturally)
    * @param {string} jobId - Export job ID
    * @returns {Promise<Object>} Export job
    */
@@ -726,23 +643,13 @@ class ExportService extends EventEmitter {
       throw new Error('Export job not found');
     }
 
-    // Destroy active streaming pipeline if exists
-    const activePipeline = this.activePipelines.get(jobId);
-    if (activePipeline) {
-      activePipeline.destroy();
-      this.activePipelines.delete(jobId);
-    }
-
-    if (job.status === 'processing') {
-      // Signal worker to pause gracefully
-      workerPool.pauseTask(jobId);
-    }
+    // Pause is handled naturally through status checks in streaming
 
     return job;
   }
 
   /**
-   * Resume an export job (handles both streaming and worker-based exports)
+   * Resume an export job (simplified unified approach)
    * @param {string} jobId - Export job ID
    * @returns {Promise<Object>} Export job
    */
@@ -753,49 +660,21 @@ class ExportService extends EventEmitter {
     }
 
     if (job.status === 'paused') {
-      // Determine if this is a streaming export by checking the same condition as startExport
-      const query = streamExportService.buildQueryFromFilters(job.filters);
-      const totalCount = await Task.countDocuments(query);
-      const estimatedSize = this.estimateExportSize(totalCount, job.format);
-      const isStreamingExport = estimatedSize > exportConfig.mediumExportThreshold;
-      
-      if (isStreamingExport) {
-        // For streaming exports, restart the export process directly with resume capability
-        console.log(`[ExportService] Resuming streaming export ${jobId} from item ${job.processedItems || 0}`);
-        
-        // Update job status to processing
-        if (this.jobStateManager) {
-          await this.jobStateManager.resumeJob(jobId, 'resume-streaming');
-        }
-        
-        // Restart the export process with existing job data (it will use processedItems for resume)
-        // Use a proper callback to avoid getting stuck
-        const callback = (result) => {
-          console.log(`[ExportService] Streaming export resume completed for job ${jobId}:`, result);
-        };
-        
-        this.startExport(job, callback);
-      } else {
-        // For worker-based exports, use the existing queue approach
-        const resumeFilters = {
-          ...job.filters,
-          _resumeFromItem: job.processedItems || 0,
-          _lastProcessedId: job.lastProcessedId
-        };
-
-        console.log(`[ExportService] Re-queueuing worker-based export ${jobId} from item ${job.processedItems || 0}`);
-        await jobQueue.addJob(
-          job._id.toString(),
-          'exportTasks',
-          {
-            format: job.format,
-            filters: resumeFilters,
-            clientId: job.clientId,
-            isResume: true
-          },
-          { priority: 10 } // Higher priority for resumed jobs
-        );
+      // Update job status to processing
+      if (this.jobStateManager) {
+        await this.jobStateManager.resumeJob(jobId, 'resume-export');
       }
+      
+      // Re-add the job to the queue for processing - it will detect resume state and continue from cursor
+      await jobQueue.addJob(
+        jobId,
+        'exportTasks',
+        {
+          format: job.format,
+          filters: job.filters,
+          clientId: job.clientId
+        }
+      );
     }
 
     return job;
@@ -812,10 +691,7 @@ class ExportService extends EventEmitter {
       throw new Error('Export job not found');
     }
 
-    if (job.status === 'processing') {
-      // Signal worker to cancel gracefully
-      workerPool.cancelTask(jobId);
-    }
+    // Cancellation is handled naturally through status checks in streaming
 
     // Remove from queue if pending
     if (job.status === 'pending') {

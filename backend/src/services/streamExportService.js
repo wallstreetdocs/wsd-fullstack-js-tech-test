@@ -11,16 +11,15 @@ class StreamExportService {
    * Create a readable stream for task data
    * @param {Object} query - MongoDB query object
    * @param {Object} sort - MongoDB sort object
-   * @param {number} skipItems - Number of items to skip for resume functionality
+   * @param {string|null} lastProcessedId - ID of last processed task for resume functionality
    * @returns {stream.Readable} MongoDB cursor as readable stream
    */
-  createTaskStream(query, sort, skipItems = 0) {
-    // Use MongoDB cursor as a readable stream, with skip for resume functionality
-    let mongoQuery = Task.find(query).sort(sort);
-    if (skipItems > 0) {
-      mongoQuery = mongoQuery.skip(skipItems);
+  createTaskStream(query, sort, lastProcessedId = null) {
+    // Use cursor-based resume for reliable pagination
+    if (lastProcessedId) {
+      query._id = { $gt: lastProcessedId };
     }
-    return mongoQuery.cursor();
+    return Task.find(query).sort(sort).cursor();
   }
 
   /**
@@ -115,88 +114,59 @@ class StreamExportService {
    * @returns {stream.Transform} Transform stream that tracks progress
    */
   createProgressStream(progressCallback, totalCount, resumeFromCount = 0) {
-    let processedCount = resumeFromCount; // Start from resume point
+    let processedCount = resumeFromCount;
     let lastReportedProgress = 0;
-    let streamDestroyed = false;
-    // We'll handle division by zero safely in the transform function
-    const safeTotal = totalCount || 0; // Use actual count, even if zero
-
-    // Send initial progress update with resume progress
-    setTimeout(async () => {
-      if (streamDestroyed) return; // Don't call if stream was already destroyed
-      try {
-        const initialProgress = safeTotal > 0 ? Math.floor((resumeFromCount / safeTotal) * 100) : 0;
-        await progressCallback(initialProgress, resumeFromCount, safeTotal);
-      } catch (error) {
-        // Handle cancellation and pause errors in initial progress callback
-        if (error.message.includes('cancelled') || error.message.includes('paused')) {
-          streamDestroyed = true;
-        }
-      }
-    }, 0);
+    let lastTaskId = null;
+    const safeTotal = totalCount || 0;
 
     return new Transform({
       objectMode: true,
       async transform(chunk, encoding, callback) {
         try {
-          // Check if stream was destroyed (cancelled)
-          if (streamDestroyed) {
-            // End the stream gracefully instead of throwing
-            this.destroy(new Error('Export job was cancelled'));
-            return;
-          }
-
-          // Increment counter
           processedCount++;
+          lastTaskId = chunk._id; // Track cursor position
 
-          // Calculate progress percentage - handle division by zero safely
           const progress = safeTotal > 0 ? Math.floor((processedCount / safeTotal) * 100) : 0;
-
-          // Report progress more frequently - now every 1% for better UX
-          const shouldReport =
-            progress >= lastReportedProgress + 1 || // Every 1% (increased frequency)
-            processedCount === 1 || // First item
-            processedCount === safeTotal || // Last item
-            processedCount % 5 === 0; // Every 5 items for all exports
+          const shouldReport = progress >= lastReportedProgress + 1 || processedCount === 1 || processedCount === safeTotal;
 
           if (shouldReport) {
             try {
-              await progressCallback(progress, processedCount, safeTotal);
-              lastReportedProgress = progress;
-            } catch (progressError) {
-              // If progress callback throws (e.g., job cancelled or paused), stop processing
-              if (progressError.message.includes('cancelled') || progressError.message.includes('paused')) {
-                streamDestroyed = true;
-                this.destroy(progressError);
+              const result = await progressCallback(progress, processedCount, safeTotal, lastTaskId);
+              
+              // Check if job was stopped (paused/cancelled)
+              if (result && result.stopped) {
+                console.log(`[StreamExportService] Export ${result.reason}, stopping pipeline`);
+                // Signal pipeline to stop with the reason and current progress
+                if (this._pipelineResolver) {
+                  this._pipelineResolver({ 
+                    stopped: true, 
+                    reason: result.reason,
+                    processedItems: result.processedItems,
+                    lastProcessedId: result.lastTaskId
+                  });
+                }
                 return;
               }
-              // For other progress errors, log but continue
+              
+              lastReportedProgress = progress;
+            } catch (progressError) {
               console.error('[StreamExportService] Progress callback error:', progressError);
             }
           }
 
-          // Pass the chunk through unchanged
           callback(null, chunk);
         } catch (error) {
           callback(error);
         }
       },
       async flush(callback) {
-        // Make sure we send a final progress update
         try {
-          if (processedCount > 0) {
-            await progressCallback(100, processedCount, safeTotal);
-          } else {
-            // Handle edge case of empty result sets
-            await progressCallback(100, 0, 0);
-          }
+          await progressCallback(100, processedCount, safeTotal, lastTaskId);
           callback();
         } catch (progressError) {
-          // If progress callback throws (e.g., job cancelled), stop processing
-          if (progressError.message.includes('cancelled')) {
+          if (progressError.message.includes('cancelled') || progressError.message.includes('paused')) {
             return callback(progressError);
           }
-          // For other progress errors, log but continue
           console.error('[StreamExportService] Final progress callback error:', progressError);
           callback();
         }

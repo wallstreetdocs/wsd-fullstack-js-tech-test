@@ -6,7 +6,6 @@
 import { EventEmitter } from 'events';
 import ExportService from '../services/exportService.js';
 import jobQueue from '../services/jobQueue.js';
-import workerPool from '../services/workerPool.js';
 import JobStateManager from '../services/jobStateManager.js';
 
 /**
@@ -276,24 +275,6 @@ class ExportHandler extends EventEmitter {
         );
       } catch (err) {
         console.error('Error handling job pause event:', err);
-      }
-    });
-
-    // Listen for worker thread events
-    workerPool.on('task-progress', async (progressData) => {
-      if (progressData && progressData.jobId) {
-        try {
-          // Use centralized state manager for all progress updates
-          await this.jobStateManager.updateProgress(
-            progressData.jobId,
-            progressData.progress || 0,
-            progressData.processedItems || 0,
-            progressData.totalItems || 0,
-            'worker-progress'
-          );
-        } catch (error) {
-          console.error('Error handling worker progress update:', error);
-        }
       }
     });
   }
