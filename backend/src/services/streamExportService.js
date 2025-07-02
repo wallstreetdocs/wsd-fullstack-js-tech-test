@@ -4,6 +4,7 @@
  */
 
 import { Transform } from 'stream';
+import fs from 'fs';
 import Task from '../models/Task.js';
 
 class StreamExportService {
@@ -11,15 +12,13 @@ class StreamExportService {
    * Create a readable stream for task data
    * @param {Object} query - MongoDB query object
    * @param {Object} sort - MongoDB sort object
-   * @param {string|null} lastProcessedId - ID of last processed task for resume functionality
+   * @param {number} skipCount - Number of items to skip for resume functionality
    * @returns {stream.Readable} MongoDB cursor as readable stream
    */
-  createTaskStream(query, sort, lastProcessedId = null) {
-    // Use cursor-based resume for reliable pagination
-    if (lastProcessedId) {
-      query._id = { $gt: lastProcessedId };
-    }
-    return Task.find(query).sort(sort).cursor();
+  createTaskStream(query, sort, skipCount = 0) {
+    // Use offset-based resume for reliable pagination
+    // More reliable for pause/resume scenarios than cursor-based approach
+    return Task.find(query).sort(sort).skip(skipCount).cursor();
   }
 
   /**
@@ -64,9 +63,10 @@ class StreamExportService {
 
   /**
    * Create a transform stream for JSON formatting
+   * @param {boolean} isAppending - Whether we're appending to existing file
    * @returns {stream.Transform} Transform stream for JSON
    */
-  createJsonTransform() {
+  createJsonTransform(isAppending = false) {
     let isFirstChunk = true;
     let tasksProcessed = 0;
 
@@ -80,9 +80,14 @@ class StreamExportService {
           const taskJson = JSON.stringify(task);
 
           if (isFirstChunk) {
-            // First chunk: start array with opening bracket
             isFirstChunk = false;
-            callback(null, '[' + taskJson);
+            if (isAppending) {
+              // When appending, start with comma (assumes existing file ends with valid JSON)
+              callback(null, ',' + taskJson);
+            } else {
+              // New file: start array with opening bracket
+              callback(null, '[' + taskJson);
+            }
           } else {
             // Subsequent chunks: add comma before the task
             callback(null, ',' + taskJson);
@@ -93,8 +98,8 @@ class StreamExportService {
       },
       flush(callback) {
         // Called when there are no more tasks
-        if (isFirstChunk) {
-          // No tasks were processed, send an empty array
+        if (isFirstChunk && !isAppending) {
+          // No tasks were processed in new file, send an empty array
           console.log(`JSON transform processed ${tasksProcessed} tasks`);
           callback(null, '[]');
         } else {
@@ -107,6 +112,37 @@ class StreamExportService {
   }
 
   /**
+   * Prepare JSON file for appending by removing closing bracket
+   * @param {string} filePath - Path to the JSON file
+   * @returns {Promise<void>}
+   */
+  async prepareJsonFileForAppend(filePath) {
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.size > 0) {
+        // Read the last few bytes to find and remove the closing ']'
+        const fd = fs.openSync(filePath, 'r+');
+        const buffer = Buffer.alloc(10);
+        const bytesRead = fs.readSync(fd, buffer, 0, 10, Math.max(0, stats.size - 10));
+        
+        const lastContent = buffer.slice(0, bytesRead).toString();
+        const lastBracketIndex = lastContent.lastIndexOf(']');
+        
+        if (lastBracketIndex !== -1) {
+          // Truncate the file to remove the closing bracket
+          const truncatePosition = stats.size - (bytesRead - lastBracketIndex);
+          fs.ftruncateSync(fd, truncatePosition);
+        }
+        
+        fs.closeSync(fd);
+      }
+    } catch (error) {
+      console.error('Error preparing JSON file for append:', error);
+      // Non-critical error, continue with append
+    }
+  }
+
+  /**
    * Create a progress tracking transform stream
    * @param {Function} progressCallback - Callback for progress updates
    * @param {number} totalCount - Total number of items to process
@@ -116,7 +152,6 @@ class StreamExportService {
   createProgressStream(progressCallback, totalCount, resumeFromCount = 0) {
     let processedCount = resumeFromCount;
     let lastReportedProgress = 0;
-    let lastTaskId = null;
     const safeTotal = totalCount || 0;
 
     return new Transform({
@@ -124,14 +159,13 @@ class StreamExportService {
       async transform(chunk, encoding, callback) {
         try {
           processedCount++;
-          lastTaskId = chunk._id; // Track cursor position
 
           const progress = safeTotal > 0 ? Math.floor((processedCount / safeTotal) * 100) : 0;
           const shouldReport = progress >= lastReportedProgress + 1 || processedCount === 1 || processedCount === safeTotal;
 
           if (shouldReport) {
             try {
-              const result = await progressCallback(progress, processedCount, safeTotal, lastTaskId);
+              const result = await progressCallback(progress, processedCount, safeTotal);
               
               // Check if job was stopped (paused/cancelled)
               if (result && result.stopped) {
@@ -141,8 +175,7 @@ class StreamExportService {
                   this._pipelineResolver({ 
                     stopped: true, 
                     reason: result.reason,
-                    processedItems: result.processedItems,
-                    lastProcessedId: result.lastTaskId
+                    processedItems: result.processedItems
                   });
                 }
                 return;
@@ -161,7 +194,7 @@ class StreamExportService {
       },
       async flush(callback) {
         try {
-          await progressCallback(100, processedCount, safeTotal, lastTaskId);
+          await progressCallback(100, processedCount, safeTotal);
           callback();
         } catch (progressError) {
           if (progressError.message.includes('cancelled') || progressError.message.includes('paused')) {

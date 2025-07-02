@@ -66,7 +66,7 @@ class ExportService extends EventEmitter {
 
       // Don't process paused or cancelled jobs
       if (job.status === 'paused') {
-        callback({ paused: true, progress: { processedItems: job.processedItems, lastProcessedId: job.lastProcessedId } });
+        callback({ paused: true, progress: { processedItems: job.processedItems } });
         return;
       }
 
@@ -118,21 +118,18 @@ class ExportService extends EventEmitter {
       const sort = streamExportService.buildSortFromFilters(job.filters);
 
       // Create progress tracking function for all exports
-      const progressCallback = async (progress, processedItems, totalItems, lastTaskId) => {
+      const progressCallback = async (progress, processedItems, totalItems) => {
         try {
           // Check if job was cancelled or paused before updating progress
           const currentJob = await ExportJob.findById(job._id);
           if (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'paused')) {
-            // Save cursor position for resume
-            if (lastTaskId) {
-              await ExportJob.findByIdAndUpdate(job._id, { 
-                lastProcessedId: lastTaskId,
-                processedItems 
-              });
-            }
+            // Save progress for resume (offset-based approach)
+            await ExportJob.findByIdAndUpdate(job._id, { 
+              processedItems 
+            });
             
             // Return status signal instead of throwing error
-            return { stopped: true, reason: currentJob.status, processedItems, lastTaskId };
+            return { stopped: true, reason: currentJob.status, processedItems };
           }
           
           // Update progress through JobStateManager if available
@@ -156,27 +153,44 @@ class ExportService extends EventEmitter {
         }
       };
 
-      // Create temp file path
-      const tempFilePath = path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
+      // Check if job has existing temp file for resume
+      const tempFilePath = (job.tempFilePath && fs.existsSync(job.tempFilePath)) 
+        ? job.tempFilePath 
+        : path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
 
-      // Stream data to file
-      const writeStream = fs.createWriteStream(tempFilePath);
+      // Stream data to file - append if resuming, otherwise create new
+      const writeStream = fs.createWriteStream(tempFilePath, { 
+        flags: (job.tempFilePath && fs.existsSync(job.tempFilePath)) ? 'a' : 'w' 
+      });
+
+      // Save temp file path immediately for resume capability
+      if (!job.tempFilePath) {
+        job.tempFilePath = tempFilePath;
+        await job.save();
+      }
 
       // Get resume information for streaming exports
       const resumeFromCount = job.processedItems || 0;
-      const lastProcessedId = job.lastProcessedId || null;
-      const isResuming = lastProcessedId || resumeFromCount > 0;
+      const isResuming = resumeFromCount > 0;
       
-      // Create streams with cursor-based resume capability
-      const taskStream = streamExportService.createTaskStream(query, sort, lastProcessedId);
+      // Determine if we're appending to existing file
+      const isAppending = job.tempFilePath && fs.existsSync(job.tempFilePath);
+      
+      // For JSON files, prepare the existing file for appending
+      if (isAppending && job.format === 'json') {
+        await streamExportService.prepareJsonFileForAppend(job.tempFilePath);
+      }
+      
+      // Create streams with offset-based resume capability
+      const taskStream = streamExportService.createTaskStream(query, sort, resumeFromCount);
       const progressStream = streamExportService.createProgressStream(progressCallback, totalCount, resumeFromCount);
       const formatStream = job.format === 'json'
-        ? streamExportService.createJsonTransform()
+        ? streamExportService.createJsonTransform(isAppending)
         : streamExportService.createCsvTransform();
         
       // Log resume information
       if (isResuming) {
-        console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount}, cursor: ${lastProcessedId}`);
+        console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount} (offset-based)`);
       }
 
       // Wait for stream to finish
@@ -216,8 +230,7 @@ class ExportService extends EventEmitter {
           callback({ 
             paused: true, 
             progress: { 
-              processedItems: result.processedItems || job.processedItems, 
-              lastProcessedId: result.lastProcessedId || job.lastProcessedId 
+              processedItems: result.processedItems || job.processedItems
             } 
           });
         }
