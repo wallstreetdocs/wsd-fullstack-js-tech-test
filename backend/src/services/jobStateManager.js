@@ -24,7 +24,7 @@ class JobStateManager {
 
     console.log(`[JobStateManager] Broadcasting job status: ${job._id}, status=${job.status}, source=${source}`);
 
-    // Create single status event with all needed data
+    // Create unified status event with all needed data
     const statusEvent = {
       jobId: job._id.toString(),
       status: job.status,
@@ -35,32 +35,8 @@ class JobStateManager {
       error: job.error
     };
 
-    // Broadcast both status and progress events for compatibility
-    this.io.emit('export:status', statusEvent);
-    this.io.emit('export:progress', statusEvent);
-
-    // Additional completion event for backward compatibility
-    if (job.status === 'completed') {
-      this.io.emit('export:completed', {
-        jobId: job._id.toString(),
-        filename: job.filename,
-        totalItems: job.totalItems || job.processedItems || 0
-      });
-    }
-
-    // Additional specific events for failed and cancelled states
-    if (job.status === 'failed') {
-      this.io.emit('export:failed', {
-        jobId: job._id.toString(),
-        error: job.error
-      });
-    }
-
-    if (job.status === 'cancelled') {
-      this.io.emit('export:cancelled', {
-        jobId: job._id.toString()
-      });
-    }
+    // Single unified event that replaces all previous events
+    this.io.emit('export:update', statusEvent);
   }
 
   /**

@@ -10,6 +10,56 @@ import socket from '../plugins/socket.js'
 import { categorizeError, ErrorCategory } from '../utils/errorHandler.js'
 
 /**
+ * Simplified error categorization for export operations
+ * @function getBasicErrorInfo
+ * @param {Error} error - The error to categorize
+ * @returns {Object} Basic error information
+ */
+function getBasicErrorInfo(error) {
+  const message = error?.response?.data?.message || error?.message || 'Unknown error'
+  
+  // Basic categorization based on common patterns
+  if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK' || !navigator.onLine) {
+    return {
+      category: 'network',
+      message: 'Connection issue',
+      status: 'connection-error',
+      recoverable: true,
+      suggestion: 'Check your internet connection and try again'
+    }
+  }
+  
+  if (error.code === 'TIMEOUT' || message.includes('timeout')) {
+    return {
+      category: 'timeout',
+      message: 'Request timed out',
+      status: 'timeout-error',
+      recoverable: true,
+      suggestion: 'Try again or reduce the export size'
+    }
+  }
+  
+  if (error.response?.status >= 500) {
+    return {
+      category: 'server',
+      message: 'Server error',
+      status: 'server-error',
+      recoverable: true,
+      suggestion: 'Try again in a few moments'
+    }
+  }
+  
+  // Default to client error
+  return {
+    category: 'client',
+    message: message,
+    status: 'failed',
+    recoverable: false,
+    suggestion: 'Please contact support if the issue persists'
+  }
+}
+
+/**
  * Pinia store for export management with real-time progress updates
  * @function useExportStore
  * @returns {Object} Export store with reactive state and methods
@@ -97,34 +147,20 @@ export const useExportStore = defineStore('exports', () => {
       }
       return response.data
     } catch (err) {
-      // Categorize the error
-      const categorizedError = categorizeError(err)
+      // Simplified error handling with basic categorization
+      const errorInfo = getBasicErrorInfo(err)
       
-      // Update export progress with categorized error details
-      exportProgress.error = categorizedError.message
-      exportProgress.errorCategory = categorizedError.category
-      exportProgress.errorRecoverable = categorizedError.recoverable
-      exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+      // Update export progress with error details
+      exportProgress.error = errorInfo.message
+      exportProgress.errorCategory = errorInfo.category
+      exportProgress.errorRecoverable = errorInfo.recoverable
+      exportProgress.recoverySuggestion = errorInfo.suggestion
+      exportProgress.status = errorInfo.status
+      exportProgress.active = false
       
-      // Set appropriate status based on error category
-      if (categorizedError.category === ErrorCategory.NETWORK) {
-        exportProgress.status = 'connection-error'
-        exportProgress.active = false
-      } else if (categorizedError.category === ErrorCategory.TIMEOUT) {
-        exportProgress.status = 'timeout-error'
-        exportProgress.active = false
-      } else if (categorizedError.category === ErrorCategory.SERVER) {
-        exportProgress.status = 'server-error'
-        exportProgress.active = false
-      } else {
-        // For other errors
-        exportProgress.status = 'failed'
-        exportProgress.active = false
-      }
-      
-      // Still set the error value for internal tracking
-      error.value = categorizedError.message
-      console.error('Error starting export:', err, categorizedError)
+      // Set error for internal tracking
+      error.value = errorInfo.message
+      console.error('Error starting export:', err, errorInfo)
     } finally {
       loading.value = false
     }
@@ -163,26 +199,26 @@ export const useExportStore = defineStore('exports', () => {
     } catch (err) {
       console.error('Error downloading export:', err)
       
-      // Categorize the error
-      const categorizedError = categorizeError(err)
+      // Simplified error handling
+      const errorInfo = getBasicErrorInfo(err)
       
       // Update the error message but don't change the status
       // This way, users can still retry the download
       if (jobId === exportProgress.jobId) {
-        exportProgress.error = categorizedError.message
-        exportProgress.errorCategory = categorizedError.category
-        exportProgress.errorRecoverable = categorizedError.recoverable
-        exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+        exportProgress.error = errorInfo.message
+        exportProgress.errorCategory = errorInfo.category
+        exportProgress.errorRecoverable = errorInfo.recoverable
+        exportProgress.recoverySuggestion = errorInfo.suggestion
       }
       
       if (activeExports[jobId]) {
-        activeExports[jobId].error = categorizedError.message
-        activeExports[jobId].errorCategory = categorizedError.category
-        activeExports[jobId].errorRecoverable = categorizedError.recoverable
-        activeExports[jobId].recoverySuggestion = categorizedError.recoverySuggestion
+        activeExports[jobId].error = errorInfo.message
+        activeExports[jobId].errorCategory = errorInfo.category
+        activeExports[jobId].errorRecoverable = errorInfo.recoverable
+        activeExports[jobId].recoverySuggestion = errorInfo.suggestion
       }
       
-      error.value = categorizedError.message
+      error.value = errorInfo.message
     }
   }
   
@@ -291,14 +327,14 @@ export const useExportStore = defineStore('exports', () => {
     } catch (err) {
       console.error('Error retrying export:', err)
       
-      // Categorize the error
-      const categorizedError = categorizeError(err)
+      // Simplified error handling for retry
+      const errorInfo = getBasicErrorInfo(err)
       
-      // Update export progress with categorized error details
-      exportProgress.error = `Retry failed: ${categorizedError.message}`
-      exportProgress.errorCategory = categorizedError.category
-      exportProgress.errorRecoverable = categorizedError.recoverable
-      exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+      // Update export progress with error details
+      exportProgress.error = `Retry failed: ${errorInfo.message}`
+      exportProgress.errorCategory = errorInfo.category
+      exportProgress.errorRecoverable = errorInfo.recoverable
+      exportProgress.recoverySuggestion = errorInfo.suggestion
     }
   }
 
@@ -327,147 +363,111 @@ export const useExportStore = defineStore('exports', () => {
   }
 
   /**
+   * Unified handler for all export status updates
+   * @function handleExportUpdate
+   * @param {Object} data - Export update data
+   */
+  function handleExportUpdate(data) {
+    const { jobId, status, progress, processedItems, totalItems, filename, error } = data
+
+    // If we got an event with a different jobId than our current one
+    // and our current job is null or complete, this is a new export
+    if (jobId !== exportProgress.jobId && 
+        (!exportProgress.jobId || exportProgress.status === 'completed')) {
+
+      // Completely reset state for the new job to prevent carrying over values
+      Object.assign(exportProgress, {
+        jobId: jobId,
+        active: true,
+        progress: 0,
+        processedItems: 0,
+        totalItems: 0,
+        error: null,
+        errorCategory: null,
+        errorRecoverable: false,
+        recoverySuggestion: null,
+        status: 'pending',
+        filename: null
+      });
+    }
+    
+    // Update export progress if it's the current export
+    if (jobId === exportProgress.jobId) {
+      
+      // If we're getting updates with processing status, clear any previous errors
+      if (status === 'processing' && exportProgress.error) {
+        exportProgress.error = null
+      }
+      
+      // Only update status if not paused (paused status should only be overridden by final states)
+      if (exportProgress.status !== 'paused' || ['completed', 'failed', 'cancelled'].includes(status)) {
+        exportProgress.status = status
+      }
+      
+      // Always update progress - ensure it's a number between 0-100
+      exportProgress.progress = Math.min(100, Math.max(0, progress || 0))
+      
+      // Always update processedItems and totalItems if provided, even if they're 0
+      if (processedItems !== undefined && processedItems !== null) {
+        exportProgress.processedItems = Math.max(0, processedItems)
+      }
+      
+      if (totalItems !== undefined && totalItems !== null) {
+        exportProgress.totalItems = Math.max(0, totalItems)
+      }
+
+      // Update filename for completed exports
+      if (filename) {
+        exportProgress.filename = filename
+      }
+
+      // Update error if provided
+      if (error) {
+        exportProgress.error = error
+      } else if (status === 'completed') {
+        exportProgress.error = null
+      }
+      
+      // Always keep the export active while we're receiving updates
+      exportProgress.active = true;
+      
+      // Force Vue reactivity update for completed exports
+      if (status === 'completed') {
+        nextTick(() => {
+          console.log(`[ExportStore] Force update completed - status: ${exportProgress.status}`)
+        })
+      }
+      
+    } else {
+      console.log(`[ExportStore] Ignoring update for job ${jobId} - current job is ${exportProgress.jobId}`);
+    }
+
+    // Update in active exports list
+    if (activeExports[jobId]) {
+      activeExports[jobId].status = status
+      activeExports[jobId].progress = progress
+      
+      if (filename) {
+        activeExports[jobId].filename = filename
+        activeExports[jobId].downloadReady = status === 'completed'
+      }
+      
+      // Clear any errors in the active exports list for processing status
+      if (status === 'processing' || status === 'completed') {
+        activeExports[jobId].error = null
+      } else if (error) {
+        activeExports[jobId].error = error
+      }
+    }
+  }
+
+  /**
    * Sets up socket event listeners for export progress tracking
    * @function initializeSocketListeners
    */
   function initializeSocketListeners() {
-    // Export progress updates
-    socket.on('export:progress', (data) => {
-      const { jobId, status, progress, processedItems, totalItems } = data
-
-      // If we got a progress event with a different jobId than our current one
-      // and our current job is null or complete, this is a new export
-      if (jobId !== exportProgress.jobId && 
-          (!exportProgress.jobId || exportProgress.status === 'completed')) {
-
-        // Completely reset state for the new job to prevent carrying over values
-        Object.assign(exportProgress, {
-          jobId: jobId,
-          active: true,
-          progress: 0,
-          processedItems: 0,
-          totalItems: 0, // Initialize to 0 instead of null for better UI display
-          error: null,
-          errorCategory: null,
-          errorRecoverable: false,
-          recoverySuggestion: null,
-          status: 'pending',
-          filename: null
-        });
-      }
-      
-      // Update export progress if it's the current export
-      if (jobId === exportProgress.jobId) {
-        
-        // If we're getting progress updates, we should clear any previous error
-        // messages since the export is working again
-        if (status === 'processing' && exportProgress.error) {
-          exportProgress.error = null
-        }
-        
-        // Only update status if not paused (paused status should only be overridden by final states)
-        if (exportProgress.status !== 'paused') {
-          exportProgress.status = status
-        }
-        
-        // Always update progress - ensure it's a number between 0-100
-        exportProgress.progress = Math.min(100, Math.max(0, progress || 0))
-        
-        // Always update processedItems and totalItems if provided, even if they're 0
-        if (processedItems !== undefined && processedItems !== null) {
-          exportProgress.processedItems = Math.max(0, processedItems)
-        }
-        
-        if (totalItems !== undefined && totalItems !== null) {
-          exportProgress.totalItems = Math.max(0, totalItems)
-        }
-        
-        // Always keep the export active while we're receiving updates
-        exportProgress.active = true;
-        
-      } else {
-        console.log(`[ExportStore] Ignoring progress update for job ${jobId} - current job is ${exportProgress.jobId}`);
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = status
-        activeExports[jobId].progress = progress
-        
-        // Clear any errors in the active exports list
-        if (status === 'processing') {
-          activeExports[jobId].error = null
-        }
-      }
-    })
-
-    // Export completed
-    socket.on('export:completed', (data) => {
-      const { jobId, filename, totalItems } = data
-      
-      // If we got a completion event with a different jobId than our current one
-      // and our current job is null, this could be a job that started before the page loaded
-      if (jobId !== exportProgress.jobId && !exportProgress.jobId) {
-        exportProgress.jobId = jobId;
-      }
-      
-      // Update if it's the current export
-      if (jobId === exportProgress.jobId) {
-        console.log(`[ExportStore] Updating export progress to completed for job ${jobId}`)
-        exportProgress.status = 'completed'
-        exportProgress.progress = 100
-        exportProgress.filename = filename
-        
-        // Get the actual total items count from the server if available
-        let finalCount = 0;
-        
-        if (totalItems && totalItems > 0) {
-          // Use the count from the server if provided
-          console.log(`[ExportStore] Setting final item count from server data: ${totalItems}`);
-          finalCount = totalItems;
-        } else if (exportProgress.processedItems > 0) {
-          // Use processed items as the final count if we have it
-          console.log(`[ExportStore] Using processedItems (${exportProgress.processedItems}) as final count`);
-          finalCount = exportProgress.processedItems;
-        } else if (exportProgress.totalItems > 0) {
-          // Fall back to the existing total if we have it
-          console.log(`[ExportStore] Using existing totalItems (${exportProgress.totalItems}) as final count`);
-          finalCount = exportProgress.totalItems;
-        } else {
-          // Last resort - fetch the actual count from the server
-          console.log(`[ExportStore] No count available, fetching from server`);
-          refreshExportStatus(jobId);
-          finalCount = 1; // Temporary value until refresh completes
-        }
-        
-        // Set both values to ensure consistency - use the server-provided totalItems
-        exportProgress.totalItems = totalItems || finalCount;
-        exportProgress.processedItems = finalCount;
-        
-        // Clear any error messages on completion
-        exportProgress.error = null
-
-        // IMPORTANT: Keep the progress bar visible and active
-        exportProgress.active = true
-        
-        // Force Vue reactivity update on next tick
-        nextTick(() => {
-          console.log(`[ExportStore] Force update completed - status: ${exportProgress.status}`)
-        })
-      } else {
-        console.log(`[ExportStore] Ignoring completion for job ${jobId} - current job is ${exportProgress.jobId}`);
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = 'completed'
-        activeExports[jobId].progress = 100
-        activeExports[jobId].filename = filename
-        activeExports[jobId].downloadReady = true
-        // Clear any error messages
-        activeExports[jobId].error = null
-      }
-    })
+    // Unified export update handler
+    socket.on('export:update', handleExportUpdate)
 
     // Check for active exports on reconnection
     socket.on('connect', () => {
@@ -499,44 +499,6 @@ export const useExportStore = defineStore('exports', () => {
       }
     })
 
-    // We removed these handlers in favor of the global handlers in App.vue
-    // that update the export state when needed. This is more centralized and cleaner.
-
-    // Export failed
-    socket.on('export:failed', (data) => {
-      const { jobId, error } = data
-      
-      // Update export progress if it's the current export
-      if (jobId === exportProgress.jobId) {
-        exportProgress.status = 'failed'
-        exportProgress.error = error || 'Export failed'
-        exportProgress.active = true // Keep visible for user to see the failure and retry
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = 'failed'
-        activeExports[jobId].error = error || 'Export failed'
-      }
-    })
-
-    // Export cancelled
-    socket.on('export:cancelled', (data) => {
-      const { jobId } = data
-      
-      // Update export progress if it's the current export
-      if (jobId === exportProgress.jobId) {
-        exportProgress.status = 'cancelled'
-        exportProgress.error = null // Clear any previous errors
-        exportProgress.active = true // Keep visible for user to see the cancellation
-      }
-
-      // Update in active exports list
-      if (activeExports[jobId]) {
-        activeExports[jobId].status = 'cancelled'
-        activeExports[jobId].error = null
-      }
-    })
 
     // Handle active exports on reconnection
     socket.on('export:active-jobs', (data) => {
@@ -704,17 +666,17 @@ export const useExportStore = defineStore('exports', () => {
     } catch (err) {
       console.error(`Error refreshing export status for job ${jobId}:`, err)
       
-      // Categorize the error but don't update UI for network errors
-      const categorizedError = categorizeError(err)
+      // Simplified error handling for status refresh
+      const errorInfo = getBasicErrorInfo(err)
       
       // Only update the UI for non-network errors that might need user attention
-      if (categorizedError.category !== ErrorCategory.NETWORK) {
+      if (errorInfo.category !== 'network') {
         if (jobId === exportProgress.jobId) {
           // Keep the previous status but update the error details
-          exportProgress.error = categorizedError.message
-          exportProgress.errorCategory = categorizedError.category
-          exportProgress.errorRecoverable = categorizedError.recoverable
-          exportProgress.recoverySuggestion = categorizedError.recoverySuggestion
+          exportProgress.error = errorInfo.message
+          exportProgress.errorCategory = errorInfo.category
+          exportProgress.errorRecoverable = errorInfo.recoverable
+          exportProgress.recoverySuggestion = errorInfo.suggestion
         }
       }
       // We don't update the status - we'll keep the previous state
@@ -729,9 +691,7 @@ export const useExportStore = defineStore('exports', () => {
    * @function cleanup
    */
   function cleanup() {
-    socket.off('export:progress')
-    socket.off('export:completed')
-    socket.off('export:failed')
+    socket.off('export:update')
     socket.off('export:active-jobs')
     socket.off('export:status')
     socket.off('connect')

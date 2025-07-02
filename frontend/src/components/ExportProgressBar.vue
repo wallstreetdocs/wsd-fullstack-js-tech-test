@@ -34,7 +34,7 @@
           <!-- Always show these buttons when exportProgress.status is not null or undefined -->
           <template v-if="exportProgress.status">
             <v-btn
-              v-if="currentStatus === 'processing'"
+              v-if="statusInfo.isProcessing"
               size="small"
               color="warning"
               variant="text"
@@ -43,7 +43,7 @@
               title="Pause export"
             ></v-btn>
             <v-btn
-              v-if="currentStatus === 'paused'"
+              v-if="statusInfo.isPaused"
               size="small"
               color="success" 
               variant="text"
@@ -86,8 +86,8 @@
               :color="progressBarColor"
               height="10"
               striped
-              :active="currentStatus === 'processing'"
-              :indeterminate="currentStatus === 'processing' && displayProgress < 5"
+              :active="statusInfo.isProcessing"
+              :indeterminate="statusInfo.isProcessing && displayProgress < 5"
             ></v-progress-linear>
           </div>
           <div class="text-caption">{{ displayProgress }}%</div>
@@ -97,7 +97,7 @@
           <div class="text-caption">
             {{ getProcessedItems() }} / {{ getTotalItems() }} items
           </div>
-          <div v-if="getError() && currentStatus !== 'completed'" class="text-caption error-message">
+          <div v-if="getError() && !statusInfo.isCompleted" class="text-caption error-message">
             <span>{{ errorMessage }}</span>
             <template v-if="getRecoverySuggestion()">
               <br>
@@ -131,7 +131,7 @@ const isVisible = computed(() => {
   return props.visible || exportProgress.value.active
 })
 
-// Current export status
+// Current export status with logging
 const currentStatus = computed(() => {
   const status = exportProgress.value.status;
   console.log(`ExportProgressBar - status: ${status}, active: ${exportProgress.value.active}, jobId: ${exportProgress.value.jobId}`);
@@ -140,11 +140,8 @@ const currentStatus = computed(() => {
 
 // Show accurate progress without artificial minimums or alterations
 const displayProgress = computed(() => {
-  const status = currentStatus.value;
-  const progress = exportProgress.value.progress;
-  
   // Always show 100% for completed exports, otherwise show actual progress
-  return status === 'completed' ? 100 : progress;
+  return currentStatus.value === 'completed' ? 100 : exportProgress.value.progress;
 })
 
 // Get formatted status based on current status
@@ -226,27 +223,23 @@ const progressBarColor = computed(() => {
   }
 })
 
-// Control button visibility
-const showDownloadButton = computed(() => {
-  return currentStatus.value === 'completed'
+// Consolidated status helper to reduce redundant checks
+const statusInfo = computed(() => {
+  const status = currentStatus.value
+  return {
+    isCompleted: status === 'completed',
+    isProcessing: status === 'processing',
+    isPaused: status === 'paused',
+    isFailed: ['failed', 'cancelled', 'connection-error', 'timeout-error', 'server-error'].includes(status),
+    isActive: ['processing', 'paused'].includes(status),
+    needsRetry: !['processing', 'completed'].includes(status)
+  }
 })
 
-// Show cancel button for jobs that are processing or paused
-const showCancelButton = computed(() => {
-  // Always show cancel button when export is active and not completed/failed/cancelled
-  const validStatuses = ['processing', 'paused'];
-  const shouldShow = validStatuses.includes(currentStatus.value);
-  return shouldShow;
-})
-
-
-// Show retry button for any export that's not processing or completed
-const showRetryButton = computed(() => {
-  return (
-    currentStatus.value !== 'processing' && 
-    currentStatus.value !== 'completed'
-  )
-})
+// Control button visibility using consolidated status
+const showDownloadButton = computed(() => statusInfo.value.isCompleted)
+const showCancelButton = computed(() => statusInfo.value.isActive)
+const showRetryButton = computed(() => statusInfo.value.needsRetry)
 
 // Helper functions to get data
 function getJobId() {

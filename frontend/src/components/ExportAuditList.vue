@@ -219,10 +219,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   // Clean up socket listeners
-  socket.off('export:progress', handleExportProgress)
-  socket.off('export:completed', handleExportCompleted)
-  socket.off('export:failed', handleExportFailed)
-  socket.off('export:cancelled', handleExportCancelled)
+  socket.off('export:update', handleExportUpdate)
 })
 
 function downloadExport(id) {
@@ -280,64 +277,24 @@ function formatDate(dateString) {
 }
 
 function setupSocketListeners() {
-  socket.on('export:progress', handleExportProgress)
-  socket.on('export:completed', handleExportCompleted)
-  socket.on('export:failed', handleExportFailed)
-  socket.on('export:cancelled', handleExportCancelled)
+  socket.on('export:update', handleExportUpdate)
 }
 
-function handleExportProgress(data) {
-  const { jobId, status, progress } = data
+function handleExportUpdate(data) {
+  const { jobId, status, progress, filename, error } = data
   // Find and update the job in our history
   const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
   if (jobIndex !== -1) {
     exportStore.exportHistory[jobIndex] = {
       ...exportStore.exportHistory[jobIndex],
       status,
-      progress
+      progress: progress || exportStore.exportHistory[jobIndex].progress,
+      filename: filename || exportStore.exportHistory[jobIndex].filename,
+      error: error || (status === 'completed' ? null : exportStore.exportHistory[jobIndex].error)
     }
-  }
-}
-
-function handleExportCompleted(data) {
-  const { jobId, filename } = data
-  // Find and update the job in our history
-  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
-  if (jobIndex !== -1) {
-    exportStore.exportHistory[jobIndex] = {
-      ...exportStore.exportHistory[jobIndex],
-      status: 'completed',
-      progress: 100,
-      filename
-    }
-  } else {
-    // If job not in history, refresh the entire list
+  } else if (status === 'completed') {
+    // If job not in history and it's completed, refresh the entire list
     refreshHistory()
-  }
-}
-
-function handleExportFailed(data) {
-  const { jobId, error } = data
-  // Find and update the job in our history
-  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
-  if (jobIndex !== -1) {
-    exportStore.exportHistory[jobIndex] = {
-      ...exportStore.exportHistory[jobIndex],
-      status: 'failed',
-      error: error || 'Export failed'
-    }
-  }
-}
-
-function handleExportCancelled(data) {
-  const { jobId } = data
-  // Find and update the job in our history
-  const jobIndex = exportStore.exportHistory.findIndex(job => job._id === jobId)
-  if (jobIndex !== -1) {
-    exportStore.exportHistory[jobIndex] = {
-      ...exportStore.exportHistory[jobIndex],
-      status: 'cancelled'
-    }
   }
 }
 
