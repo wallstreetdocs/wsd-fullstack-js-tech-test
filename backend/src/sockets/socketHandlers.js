@@ -55,7 +55,6 @@ class SocketHandlers {
 
       socket.on('disconnect', () => {
         console.log(`🔌 Client disconnected: ${socket.id}`);
-        // Clean up any active exports for this client if needed
       });
     });
   }

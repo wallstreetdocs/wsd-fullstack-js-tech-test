@@ -101,11 +101,9 @@ class StreamExportService {
         // Called when there are no more tasks
         if (isFirstChunk && !isAppending) {
           // No tasks were processed in new file, send an empty array
-          console.log(`JSON transform processed ${tasksProcessed} tasks`);
           callback(null, '[]');
         } else {
           // Close the array
-          console.log(`JSON transform processed ${tasksProcessed} tasks`);
           callback(null, ']');
         }
       }
@@ -170,7 +168,6 @@ class StreamExportService {
               
               // Check if job was stopped (paused/cancelled)
               if (result && result.stopped) {
-                console.log(`[StreamExportService] Export ${result.reason}, stopping pipeline`);
                 // Signal pipeline to stop with the reason and current progress
                 if (this._pipelineResolver) {
                   this._pipelineResolver({ 

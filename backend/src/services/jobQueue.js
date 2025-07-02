@@ -158,7 +158,6 @@ class JobQueue extends EventEmitter {
       this.emit('process-job', {
         id: jobId,
         type: jobDetails.type,
-        data: jobData,
         callback: (result) => this.handleJobCompletion(jobId, result)
       });
 
@@ -302,7 +301,7 @@ class JobQueue extends EventEmitter {
     let cursor = '0';
 
     try {
-      // Use SCAN instead of KEYS for non-blocking iteration
+      // Use SCAN instead of KEYS for non-blocking iteration - return in batches of 100
       do {
         const result = await redisClient.scan(cursor, 'MATCH', `${this.jobStatusPrefix}*`, 'COUNT', 100);
 
@@ -360,16 +359,7 @@ class JobQueue extends EventEmitter {
 
     const timestamp = Date.now();
 
-    // Parse job data safely
-    let jobData = {};
-    try {
-      jobData = JSON.parse(jobStatus.data || '{}');
-    } catch (error) {
-      console.warn(`Invalid job data for ${jobId}, using empty object`);
-    }
-
     const priority = parseInt(jobStatus.priority || '0');
-    const jobType = jobStatus.type || 'unknown';
     const score = priority * 10000000000 + timestamp;
 
     // Atomic recovery: update status and re-add to queue

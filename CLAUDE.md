@@ -1,7 +1,7 @@
 # Claude Code Instructions
 
 ## Project Overview
-This is a real Production project built with node.js, vue and redis. The repository contains a complete Task Analytics Dashboard built with Vue.js 3, Node.js, MongoDB, Redis, and Socket.IO.
+This is a technical test repository for evaluating full-stack JavaScript developers. The repository contains a complete Task Analytics Dashboard built with Vue.js 3, Node.js, MongoDB, Redis, and Socket.IO.
 
 ## Repository Structure
 - **`/backend`** - Node.js/Express.js API with MongoDB and Redis

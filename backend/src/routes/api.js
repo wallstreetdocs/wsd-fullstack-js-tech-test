@@ -40,13 +40,6 @@ export const setSocketHandlers = (handlers) => {
  * @param {string} [req.query.priority] - Filter by task priority
  * @param {string} [req.query.sortBy=createdAt] - Field to sort by
  * @param {string} [req.query.sortOrder=desc] - Sort order (asc/desc)
- * @param {string} [req.query.search] - Search in title and description
- * @param {string} [req.query.createdAfter] - Filter tasks created after date (ISO format)
- * @param {string} [req.query.createdBefore] - Filter tasks created before date (ISO format)
- * @param {string} [req.query.completedAfter] - Filter tasks completed after date (ISO format)
- * @param {string} [req.query.completedBefore] - Filter tasks completed before date (ISO format)
- * @param {number} [req.query.estimatedTimeLt] - Filter tasks with estimated time less than value (minutes)
- * @param {number} [req.query.estimatedTimeGte] - Filter tasks with estimated time greater than or equal to value (minutes)
  * @returns {Object} Paginated tasks with metadata
  */
 router.get('/tasks', async (req, res, next) => {
@@ -54,12 +47,18 @@ router.get('/tasks', async (req, res, next) => {
     const {
       page = 1,
       limit = 10,
-      ...filters
+      status,
+      priority,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
     } = req.query;
 
-    // Use shared query builder utility
-    const query = buildQueryFromFilters(filters);
-    const sort = buildSortFromFilters(filters);
+    const query = {};
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
     const tasks = await Task.find(query)
       .sort(sort)

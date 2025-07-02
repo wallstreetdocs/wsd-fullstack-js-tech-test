@@ -29,18 +29,6 @@ const io = new Server(server, {
   }
 });
 
-// Add debug listener for all Socket.IO events
-if (process.env.NODE_ENV !== 'production') {
-  io.on('connection', (socket) => {
-    console.log(`💡 Debug: Socket connection established: ${socket.id}`);
-
-    // Listen for all packets
-    socket.onAny((event, ...args) => {
-      console.log(`💡 Debug: Socket ${socket.id} event: ${event}`, args);
-    });
-  });
-}
-
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
@@ -83,18 +71,15 @@ const gracefulShutdown = async (signal) => {
 
   try {
     // Pause job queue
-    console.log('Pausing job queue...');
     await jobQueue.pause();
 
 
     // Close server
     server.close(() => {
-      console.log('✅ HTTP server closed');
       process.exit(0);
     });
 
     setTimeout(() => {
-      console.log('⚠️  Forcing shutdown after timeout');
       process.exit(1);
     }, 10000);
   } catch (error) {
@@ -131,7 +116,6 @@ const startServer = async () => {
 
 
     // Initialize job queue
-    console.log('🔄 Initializing job queue...');
     await jobQueue.initialize();
 
     // Fix any existing data issues
