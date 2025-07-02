@@ -87,19 +87,12 @@ class ExportService extends EventEmitter {
       if (cachedResult) {
         const cachedData = JSON.parse(cachedResult);
 
-        // Handle different cache storage types
-        if (cachedData.storageType === 'tempFile') {
-          job.tempFilePath = cachedData.tempFilePath;
-          job.filename = cachedData.filename;
-          job.fileSize = cachedData.fileSize;
-          job.storageType = 'tempFile';
-          await job.save();
-        } else {
-          job.result = Buffer.from(cachedData.result, 'base64');
-          job.filename = cachedData.filename;
-          job.storageType = 'buffer';
-          await job.save();
-        }
+        // Restore temp file data from cache
+        job.tempFilePath = cachedData.tempFilePath;
+        job.filename = cachedData.filename;
+        job.fileSize = cachedData.fileSize;
+        job.storageType = 'tempFile';
+        await job.save();
 
         if (this.jobStateManager) {
           await this.jobStateManager.completeJob(jobId, cachedData.totalItems, cachedData.totalItems);
@@ -584,48 +577,27 @@ class ExportService extends EventEmitter {
         await job.save();
       }
 
-      // Determine how to serve the export based on storage type
-      if (job.storageType === 'buffer' && job.result) {
-        // Serve from buffer
-        let contentType, filename;
-
-        if (job.format === 'json') {
-          contentType = 'application/json';
-          filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.json`;
-        } else {
-          contentType = 'text/csv';
-          filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
-        }
-
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-        res.send(job.result);
-        return true;
-      } else if (job.storageType === 'tempFile' && job.tempFilePath) {
-        // Serve from temp file
-        if (!fs.existsSync(job.tempFilePath)) {
-          throw new Error('Export file not found');
-        }
-
-        let contentType;
-        if (job.format === 'json') {
-          contentType = 'application/json';
-        } else {
-          contentType = 'text/csv';
-        }
-
-        const filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
-
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-
-        // Stream the file to response
-        const fileStream = fs.createReadStream(job.tempFilePath);
-        fileStream.pipe(res);
-        return true;
-      } else {
-        throw new Error('Export data not available');
+      // Serve from temp file
+      if (!job.tempFilePath || !fs.existsSync(job.tempFilePath)) {
+        throw new Error('Export file not found');
       }
+
+      let contentType;
+      if (job.format === 'json') {
+        contentType = 'application/json';
+      } else {
+        contentType = 'text/csv';
+      }
+
+      const filename = job.filename || `tasks_export_${new Date().toISOString().split('T')[0]}.${job.format}`;
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+
+      // Stream the file to response
+      const fileStream = fs.createReadStream(job.tempFilePath);
+      fileStream.pipe(res);
+      return true;
     } catch (error) {
       console.error('[ExportService] Error streaming export:', error);
       throw error;

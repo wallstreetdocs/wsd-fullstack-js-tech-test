@@ -91,10 +91,6 @@ const exportJobSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-    result: {
-      type: Buffer,
-      required: false
-    },
     error: {
       type: String,
       required: false
@@ -113,20 +109,11 @@ const exportJobSchema = new mongoose.Schema(
     },
     storageType: {
       type: String,
-      enum: ['buffer', 'tempFile'],
-      default: 'buffer'
+      enum: ['tempFile'],
+      default: 'tempFile'
     },
     tempFilePath: {
       type: String,
-      required: false
-    },
-    isResumedJob: {
-      type: Boolean,
-      default: false
-    },
-    originalJobId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'ExportJob',
       required: false
     },
     lastProcessedId: {
