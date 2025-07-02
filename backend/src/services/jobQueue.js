@@ -5,6 +5,7 @@
 
 import { EventEmitter } from 'events';
 import { redisClient } from '../config/redis.js';
+import ExportJob from '../models/ExportJob.js';
 
 /**
  * A job queue system for managing background tasks
@@ -287,6 +288,7 @@ class JobQueue extends EventEmitter {
   async recoverPendingJobs() {
     console.log('Starting job recovery process...');
     let recoveredCount = 0;
+    let cleanedCount = 0;
     let cursor = '0';
 
     try {
@@ -299,8 +301,12 @@ class JobQueue extends EventEmitter {
 
         for (const key of keys) {
           try {
-            await this.recoverSingleJob(key);
-            recoveredCount++;
+            const wasRecovered = await this.recoverSingleJob(key);
+            if (wasRecovered === 'recovered') {
+              recoveredCount++;
+            } else if (wasRecovered === 'cleaned') {
+              cleanedCount++;
+            }
           } catch (error) {
             console.error(`Failed to recover job ${key}:`, error.message);
           }
@@ -309,7 +315,11 @@ class JobQueue extends EventEmitter {
 
       if (recoveredCount > 0) {
         console.log(`Successfully recovered ${recoveredCount} jobs`);
-      } else {
+      }
+      if (cleanedCount > 0) {
+        console.log(`Cleaned up ${cleanedCount} already completed jobs`);
+      }
+      if (recoveredCount === 0 && cleanedCount === 0) {
         console.log('No jobs needed recovery');
       }
     } catch (error) {
@@ -335,6 +345,21 @@ class JobQueue extends EventEmitter {
     }
 
     const jobId = key.replace(this.jobStatusPrefix, '');
+
+    // Check MongoDB first - don't recover if already completed there
+    try {
+      const existingJob = await ExportJob.findById(jobId);
+      if (existingJob && ['completed', 'failed', 'cancelled'].includes(existingJob.status)) {
+        // Job is already finished in MongoDB, just clean up Redis
+        await redisClient.del(key);
+        console.log(`Cleaned up Redis data for already completed job ${jobId} (MongoDB status: ${existingJob.status})`);
+        return 'cleaned';
+      }
+    } catch (error) {
+      console.warn(`Could not check MongoDB status for job ${jobId}:`, error.message);
+      // Continue with recovery if MongoDB check fails
+    }
+
     const timestamp = Date.now();
 
     // Parse job data safely
@@ -360,6 +385,7 @@ class JobQueue extends EventEmitter {
     await multi.exec();
 
     console.log(`Recovered job ${jobId} (type: ${jobType}, priority: ${priority})`);
+    return 'recovered';
   }
 
   /**

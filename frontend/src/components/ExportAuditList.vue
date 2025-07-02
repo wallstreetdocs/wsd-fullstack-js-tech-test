@@ -191,9 +191,20 @@ const headers = [
 
 const exportJobs = computed(() => {
   console.log('Export jobs in component:', exportStore.exportHistory)
-  return Array.isArray(exportStore.exportHistory)
-    ? exportStore.exportHistory
-    : []
+  const staticJobs = Array.isArray(exportStore.exportHistory) ? exportStore.exportHistory : []
+  
+  // Update progress and status for active jobs
+  return staticJobs.map(job => {
+    const activeJob = exportStore.activeExports[job._id]
+    if (activeJob) {
+      return {
+        ...job,
+        status: activeJob.status,
+        progress: activeJob.progress
+      }
+    }
+    return job
+  })
 })
 
 onMounted(async () => {
@@ -219,19 +230,22 @@ function downloadExport(id) {
   exportStore.downloadExport(id)
 }
 
-function pauseExport(id) {
+async function pauseExport(id) {
   console.log('Pause export ID:', id)
-  exportStore.pauseExport(id)
+  await exportStore.pauseExport(id)
+  await exportStore.getExportHistory()
 }
 
-function resumeExport(id) {
+async function resumeExport(id) {
   console.log('Resume export ID:', id)
-  exportStore.resumeExport(id)
+  await exportStore.resumeExport(id)
+  await exportStore.getExportHistory()
 }
 
-function retryExport(id) {
+async function retryExport(id) {
   console.log('Retry export ID:', id)
-  exportStore.retryExport(id)
+  await exportStore.retryExport(id)
+  await exportStore.getExportHistory()
 }
 
 function getStatusColor(status) {
