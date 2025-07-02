@@ -61,7 +61,6 @@ describe('Export Store', () => {
     expect(exportStore.error).toBe(null)
     expect(exportStore.exportHistory).toEqual([])
     expect(exportStore.activeExports).toEqual({})
-    expect(exportStore.exportProgress.active).toBe(false)
     expect(exportStore.exportProgress.jobId).toBe(null)
     expect(exportStore.exportProgress.status).toBe(null)
     expect(exportStore.exportProgress.progress).toBe(0)
@@ -102,9 +101,9 @@ describe('Export Store', () => {
     await exportStore.exportTasks(format, filters)
     
     expect(mockApiClient.exportTasks).toHaveBeenCalledWith(format, filters, null)
-    expect(exportStore.exportProgress.active).toBe(true)
     expect(exportStore.exportProgress.jobId).toBe('job-123')
     expect(exportStore.exportProgress.format).toBe('csv')
+    expect(exportStore.exportProgress.status).toBe('processing')
   })
 
 
@@ -202,18 +201,18 @@ describe('Export Store', () => {
   })
 
   it('should reset progress state', () => {
-    exportStore.exportProgress.active = true
     exportStore.exportProgress.jobId = 'job-123'
     exportStore.exportProgress.progress = 50
+    exportStore.exportProgress.status = 'processing'
     
     // Reset progress manually (no dedicated method)
-    exportStore.exportProgress.active = false
     exportStore.exportProgress.jobId = null
     exportStore.exportProgress.progress = 0
+    exportStore.exportProgress.status = null
     
-    expect(exportStore.exportProgress.active).toBe(false)
     expect(exportStore.exportProgress.jobId).toBe(null)
     expect(exportStore.exportProgress.progress).toBe(0)
+    expect(exportStore.exportProgress.status).toBe(null)
   })
 
   it('should handle socket progress updates', () => {

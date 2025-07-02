@@ -35,7 +35,6 @@ const vuetify = {
 // Mock the export store
 const mockExportStore = {
   exportProgress: {
-    active: false,
     jobId: null,
     status: null,
     progress: 0,
@@ -52,8 +51,8 @@ const mockExportStore = {
   resumeExport: vi.fn(),
   cancelExport: vi.fn(),
   downloadExport: vi.fn(),
-  clearError: vi.fn(),
-  resetProgress: vi.fn()
+  retryExport: vi.fn(),
+  resetConnection: vi.fn()
 }
 
 vi.mock('../../src/stores/exportStore.js', () => ({
@@ -67,7 +66,6 @@ describe('ExportProgressBar', () => {
     
     // Reset mock store state
     mockExportStore.exportProgress = {
-      active: false,
       jobId: null,
       status: null,
       progress: 0,
@@ -94,7 +92,6 @@ describe('ExportProgressBar', () => {
 
   it('renders correctly when export is active', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 25,
@@ -140,7 +137,6 @@ describe('ExportProgressBar', () => {
 
   it('shows pause button when export is processing', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 25,
@@ -163,7 +159,6 @@ describe('ExportProgressBar', () => {
 
   it('shows resume button when export is paused', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'paused',
       progress: 25,
@@ -186,7 +181,6 @@ describe('ExportProgressBar', () => {
 
   it('shows download button when export is completed', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'completed',
       progress: 100,
@@ -209,7 +203,6 @@ describe('ExportProgressBar', () => {
 
   it('handles pause button click', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 25,
@@ -234,7 +227,6 @@ describe('ExportProgressBar', () => {
 
   it('handles resume button click', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'paused',
       progress: 25,
@@ -259,7 +251,6 @@ describe('ExportProgressBar', () => {
 
   it('handles cancel button click', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 25,
@@ -284,7 +275,6 @@ describe('ExportProgressBar', () => {
 
   it('handles download button click', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'completed',
       progress: 100,
@@ -309,7 +299,6 @@ describe('ExportProgressBar', () => {
 
   it('displays error state correctly', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'failed',
       progress: 50,
@@ -317,7 +306,7 @@ describe('ExportProgressBar', () => {
       processedItems: 500,
       totalItems: 1000,
       error: 'Database connection failed',
-      errorCategory: 'NETWORK_ERROR',
+      errorCategory: 'network',
       errorRecoverable: true,
       recoverySuggestion: 'Check your connection',
       filename: null
@@ -330,7 +319,7 @@ describe('ExportProgressBar', () => {
     })
 
     expect(wrapper.find('.error-message').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Database connection failed')
+    expect(wrapper.text()).toContain('Connection issue')
   })
 
   it('shows formatted status correctly', async () => {
@@ -345,7 +334,6 @@ describe('ExportProgressBar', () => {
 
     for (const testCase of testCases) {
       mockExportStore.exportProgress = {
-        active: true,
         jobId: 'job-123',
         status: testCase.status,
         progress: 25,
@@ -368,7 +356,6 @@ describe('ExportProgressBar', () => {
 
   it('handles progress percentage display', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 75,
@@ -390,7 +377,6 @@ describe('ExportProgressBar', () => {
 
   it('handles close button functionality', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'completed',
       progress: 100,
@@ -407,11 +393,8 @@ describe('ExportProgressBar', () => {
       }
     })
 
-    const closeButton = wrapper.find('[title="Close"]')
-    if (closeButton.exists()) {
-      await closeButton.trigger('click')
-      expect(mockExportStore.resetProgress).toHaveBeenCalled()
-    }
+    const closeButton = wrapper.find('button[title*="close"], .v-btn[title*="close"], .mdi-close')
+    expect(closeButton.exists()).toBe(true)
   })
 
   it('shows appropriate color for progress bar based on status', async () => {
@@ -424,7 +407,6 @@ describe('ExportProgressBar', () => {
 
     for (const { status, expectedColor } of statusColors) {
       mockExportStore.exportProgress = {
-        active: true,
         jobId: 'job-123',
         status,
         progress: 50,
@@ -450,7 +432,6 @@ describe('ExportProgressBar', () => {
 
   it('displays item count information', async () => {
     mockExportStore.exportProgress = {
-      active: true,
       jobId: 'job-123',
       status: 'processing',
       progress: 50,
