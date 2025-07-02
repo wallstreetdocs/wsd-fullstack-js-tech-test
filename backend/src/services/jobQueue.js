@@ -286,7 +286,7 @@ class JobQueue extends EventEmitter {
    * @returns {Promise<void>}
    */
   async recoverPendingJobs() {
-    console.log('Starting job recovery process...');
+  
     let recoveredCount = 0;
     let cleanedCount = 0;
     let cursor = '0';
@@ -311,17 +311,7 @@ class JobQueue extends EventEmitter {
             console.error(`Failed to recover job ${key}:`, error.message);
           }
         }
-      } while (cursor !== '0');
-
-      if (recoveredCount > 0) {
-        console.log(`Successfully recovered ${recoveredCount} jobs`);
-      }
-      if (cleanedCount > 0) {
-        console.log(`Cleaned up ${cleanedCount} already completed jobs`);
-      }
-      if (recoveredCount === 0 && cleanedCount === 0) {
-        console.log('No jobs needed recovery');
-      }
+      } while (cursor !== '0'); // scan until updated cursor is 0 meaning entire keyspace is scanned
     } catch (error) {
       console.error('Critical error in job recovery process:', error.message);
     }
@@ -352,12 +342,10 @@ class JobQueue extends EventEmitter {
       if (existingJob && ['completed', 'failed', 'cancelled'].includes(existingJob.status)) {
         // Job is already finished in MongoDB, just clean up Redis
         await redisClient.del(key);
-        console.log(`Cleaned up Redis data for already completed job ${jobId} (MongoDB status: ${existingJob.status})`);
         return 'cleaned';
       }
     } catch (error) {
       console.warn(`Could not check MongoDB status for job ${jobId}:`, error.message);
-      // Continue with recovery if MongoDB check fails
     }
 
     const timestamp = Date.now();
@@ -383,8 +371,6 @@ class JobQueue extends EventEmitter {
     multi.zadd(this.queueName, score, jobId);
 
     await multi.exec();
-
-    console.log(`Recovered job ${jobId} (type: ${jobType}, priority: ${priority})`);
     return 'recovered';
   }
 

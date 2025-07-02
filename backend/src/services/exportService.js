@@ -56,7 +56,7 @@ class ExportService extends EventEmitter {
    * @param {Object} jobRequest - Job request object
    */
   async handleExportJobProcessing(jobRequest) {
-    const { id: jobId, data, callback } = jobRequest;
+    const { id: jobId, callback } = jobRequest;
 
     try {
       // Check if the job exists
@@ -172,7 +172,6 @@ class ExportService extends EventEmitter {
 
       // Get resume information for streaming exports
       const resumeFromCount = job.processedItems || 0;
-      const isResuming = resumeFromCount > 0;
       
       // Determine if we're appending to existing file
       const isAppending = job.tempFilePath && fs.existsSync(job.tempFilePath);
@@ -188,11 +187,6 @@ class ExportService extends EventEmitter {
       const formatStream = job.format === 'json'
         ? streamExportService.createJsonTransform(isAppending)
         : streamExportService.createCsvTransform();
-        
-      // Log resume information
-      if (isResuming) {
-        console.log(`[ExportService] Resuming streaming export ${job._id} from item ${resumeFromCount}/${totalCount} (offset-based)`);
-      }
 
       // Wait for stream to finish
       const result = await new Promise((resolve, reject) => {
@@ -213,8 +207,6 @@ class ExportService extends EventEmitter {
 
       // Check if export was stopped (paused/cancelled)
       if (result.stopped) {
-        console.log(`[ExportService] Export ${result.reason}, cleaning up appropriately`);
-        
         if (result.reason === 'cancelled') {
           // Clean up temp file for cancelled exports
           try {
@@ -271,7 +263,6 @@ class ExportService extends EventEmitter {
     } catch (error) {
       // Check if this is a cancellation or pause error
       if (error.message.includes('cancelled')) {
-        // Don't log cancellation as an error - it's normal behavior
         // Update job status to cancelled through JobStateManager
         try {
           if (this.jobStateManager) {
@@ -291,10 +282,6 @@ class ExportService extends EventEmitter {
           }
         });
       } else if (error.message.includes('paused')) {
-        // Don't log pause as an error - it's normal behavior
-        // Job status is already updated to paused by the progress callback
-        console.log(`[ExportService] Export job ${jobId} was paused gracefully`);
-
         // Return pause result
         callback({
           success: false,
@@ -305,9 +292,6 @@ class ExportService extends EventEmitter {
           }
         });
       } else {
-        // Log actual errors (not cancellations)
-        console.error('[ExportService] Error processing export job:', error);
-        
         // Update job status to failed through JobStateManager
         try {
           if (this.jobStateManager) {
@@ -443,38 +427,6 @@ class ExportService extends EventEmitter {
       await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
     } catch (cacheError) {
         console.error('[ExportService] Error caching temp file result:', cacheError);
-    }
-  }
-
-  /**
-   * Invalidate export cache for a specific format and filters
-   * @param {Object} params - Export parameters
-   * @returns {Promise<void>}
-   */
-  async invalidateExportCache(params) {
-    try {
-      const cacheKey = this.generateCacheKey(params);
-      const cachedData = await redisClient.get(cacheKey);
-
-      // If we have cached temp file data, delete the temp file
-      if (cachedData) {
-        try {
-          const data = JSON.parse(cachedData);
-          if (data.storageType === 'tempFile' && data.tempFilePath) {
-            if (fs.existsSync(data.tempFilePath)) {
-              fs.unlinkSync(data.tempFilePath);
-            }
-          }
-        } catch (parseError) {
-          // Ignore parsing errors
-        }
-      }
-
-      // Delete the cache entry
-      await redisClient.del(cacheKey);
-    } catch (error) {
-      console.error('[ExportService] Error invalidating cache:', error);
-      // Non-critical operation, continue
     }
   }
 
