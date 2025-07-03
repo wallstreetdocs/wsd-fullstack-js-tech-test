@@ -152,11 +152,6 @@ class ExportHandler extends EventEmitter {
           job.clientId = socket.id;
           await job.save();
 
-          // Update to processing if it wasn't
-          if (job.status !== 'processing') {
-            await job.resume();
-          }
-
           // Re-queue the job if needed
           await ExportService.resumeExportJob(jobId);
         }
