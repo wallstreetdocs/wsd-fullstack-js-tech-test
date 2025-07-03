@@ -130,7 +130,7 @@ describe('ExportJob Model Unit Tests', () => {
         type: Number,
         default: 0
       },
-      lastCheckpointFileSize: {
+      lastValidByteOffset: {
         type: Number,
         default: 0
       }
@@ -157,7 +157,7 @@ describe('ExportJob Model Unit Tests', () => {
     assert.strictEqual(exportJobSchema.processedItems.default, 0);
     assert.strictEqual(exportJobSchema.refreshCache.default, false);
     assert.strictEqual(exportJobSchema.lastCheckpointItems.default, 0);
-    assert.strictEqual(exportJobSchema.lastCheckpointFileSize.default, 0);
+    assert.strictEqual(exportJobSchema.lastValidByteOffset.default, 0);
   });
 
   test('should normalize format values correctly', () => {
@@ -214,7 +214,7 @@ describe('ExportJob Model Unit Tests', () => {
     assert.strictEqual(exportJobSchema.processedItems.type, Number);
     assert.strictEqual(exportJobSchema.fileSize.type, Number);
     assert.strictEqual(exportJobSchema.lastCheckpointItems.type, Number);
-    assert.strictEqual(exportJobSchema.lastCheckpointFileSize.type, Number);
+    assert.strictEqual(exportJobSchema.lastValidByteOffset.type, Number);
 
     // Boolean fields
     assert.strictEqual(exportJobSchema.refreshCache.type, Boolean);
@@ -274,13 +274,13 @@ describe('ExportJob Model Unit Tests', () => {
     const jobWithCheckpoint = {
       processedItems: 500,
       lastCheckpointItems: 450,
-      lastCheckpointFileSize: 2048,
+      lastValidByteOffset: 2048,
       tempFilePath: '/tmp/export_checkpoint.csv'
     };
 
     // Test checkpoint validation logic
     const hasValidCheckpoint = jobWithCheckpoint.lastCheckpointItems > 0 && 
-                              jobWithCheckpoint.lastCheckpointFileSize > 0 &&
+                              jobWithCheckpoint.lastValidByteOffset > 0 &&
                               !!jobWithCheckpoint.tempFilePath;
 
     assert.strictEqual(hasValidCheckpoint, true);

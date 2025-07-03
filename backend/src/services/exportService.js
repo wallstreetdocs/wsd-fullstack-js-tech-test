@@ -139,13 +139,15 @@ class ExportService extends EventEmitter {
             return { stopped: true, reason: currentJob.status, processedItems };
           }
 
-          // Save checkpoint every 1000 items
+          // Save checkpoint every 1000 items at record boundaries
           if (processedItems % 1000 === 0 || processedItems === totalItems) {
             try {
+              // Wait for file to be written and get accurate size
+              await new Promise(resolve => setTimeout(resolve, 10)); // Small delay to ensure write completion
               const stats = fs.statSync(tempFilePath);
               await ExportJob.findByIdAndUpdate(job._id, {
                 lastCheckpointItems: processedItems,
-                lastCheckpointFileSize: stats.size
+                lastValidByteOffset: stats.size
               });
             } catch (checkpointError) {
               console.error('[ExportService] Error saving checkpoint:', checkpointError);
@@ -186,10 +188,10 @@ class ExportService extends EventEmitter {
         try {
           const currentFileSize = fs.statSync(job.tempFilePath).size;
 
-          // If file is larger than checkpoint, truncate to checkpoint
-          if (currentFileSize > job.lastCheckpointFileSize) {
+          // If file is larger than checkpoint, truncate to last valid record boundary
+          if (currentFileSize > job.lastValidByteOffset) {
             console.log(`[ExportService] File size mismatch, truncating to checkpoint: ${job.lastCheckpointItems} items`);
-            fs.truncateSync(job.tempFilePath, job.lastCheckpointFileSize);
+            fs.truncateSync(job.tempFilePath, job.lastValidByteOffset);
             resumeFromCount = job.lastCheckpointItems;
 
             // Update job to reflect checkpoint position
@@ -205,7 +207,7 @@ class ExportService extends EventEmitter {
           resumeFromCount = 0;
           job.processedItems = 0;
           job.lastCheckpointItems = 0;
-          job.lastCheckpointFileSize = 0;
+          job.lastValidByteOffset = 0;
           await job.save();
         }
       }
@@ -582,15 +584,6 @@ class ExportService extends EventEmitter {
     }
 
     try {
-      // Make sure job has consistent count values
-      const safeCount = Math.max(job.totalItems || 1, job.processedItems || 1);
-      if (job.totalItems !== safeCount || job.processedItems !== safeCount) {
-        job.totalItems = safeCount;
-        job.processedItems = safeCount;
-        job.progress = 100;
-        await job.save();
-      }
-
       // Serve from temp file
       if (!job.tempFilePath || !fs.existsSync(job.tempFilePath)) {
         throw new Error('Export file not found');

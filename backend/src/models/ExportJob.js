@@ -124,7 +124,7 @@ const exportJobSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-    lastCheckpointFileSize: {
+    lastValidByteOffset: {
       type: Number,
       default: 0
     }

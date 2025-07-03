@@ -39,7 +39,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
       filename: null,
       refreshCache: false,
       lastCheckpointItems: 0,
-      lastCheckpointFileSize: 0
+      lastValidByteOffset: 0
     };
 
     // Mock Redis client
@@ -299,7 +299,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
         progress: 30,
         tempFilePath: '/tmp/export_123.csv',
         lastCheckpointItems: 25,
-        lastCheckpointFileSize: 512,
+        lastValidByteOffset: 512,
         save: mock.fn()
       };
 
@@ -324,7 +324,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
         progress: 40,
         tempFilePath: '/tmp/export_123.csv',
         lastCheckpointItems: 35,
-        lastCheckpointFileSize: 768,
+        lastValidByteOffset: 768,
         format: 'csv',
         filters: { status: 'completed' },
         save: mock.fn()
@@ -356,7 +356,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
         processedItems: 50,
         tempFilePath: '/tmp/export_123.csv',
         lastCheckpointItems: 45,
-        lastCheckpointFileSize: 1024
+        lastValidByteOffset: 1024
       };
 
       // Mock file system checks
@@ -366,7 +366,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
 
       // Simulate checkpoint validation logic
       const currentFileSize = 1500;
-      const checkpointFileSize = mockJob.lastCheckpointFileSize;
+      const checkpointFileSize = mockJob.lastValidByteOffset;
       
       // Should truncate file if it's larger than checkpoint
       const shouldTruncate = currentFileSize > checkpointFileSize;
@@ -384,7 +384,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
         processedItems: 30,
         tempFilePath: '/tmp/export_123.csv',
         lastCheckpointItems: 25,
-        lastCheckpointFileSize: 512,
+        lastValidByteOffset: 512,
         save: mock.fn()
       };
 
@@ -405,7 +405,7 @@ describe('Export Service Logic Tests - Critical Scenarios', () => {
         recoveryTriggered = true;
         mockJob.processedItems = 0;
         mockJob.lastCheckpointItems = 0;
-        mockJob.lastCheckpointFileSize = 0;
+        mockJob.lastValidByteOffset = 0;
       }
 
       assert.strictEqual(recoveryTriggered, true);

@@ -116,25 +116,35 @@ class StreamExportService {
     try {
       const stats = fs.statSync(filePath);
       if (stats.size > 0) {
-        // Read the last few bytes to find and remove the closing ']'
-        const fd = fs.openSync(filePath, 'r+');
-        const buffer = Buffer.alloc(10);
-        const bytesRead = fs.readSync(fd, buffer, 0, 10, Math.max(0, stats.size - 10));
-
-        const lastContent = buffer.slice(0, bytesRead).toString();
-        const lastBracketIndex = lastContent.lastIndexOf(']');
-
-        if (lastBracketIndex !== -1) {
-          // Truncate the file to remove the closing bracket
-          const truncatePosition = stats.size - (bytesRead - lastBracketIndex);
-          fs.ftruncateSync(fd, truncatePosition);
+        // Read and parse the entire JSON file to ensure structural integrity
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        
+        // Parse the JSON to validate structure
+        let parsedData;
+        try {
+          parsedData = JSON.parse(fileContent);
+        } catch (parseError) {
+          console.error('[StreamExportService] Invalid JSON file for resume:', parseError);
+          throw new Error('Cannot resume from corrupted JSON file');
         }
-
-        fs.closeSync(fd);
+        
+        // Ensure it's an array
+        if (!Array.isArray(parsedData)) {
+          throw new Error('JSON file must contain an array for resume');
+        }
+        
+        // Reconstruct the JSON without the closing bracket
+        if (parsedData.length > 0) {
+          const jsonWithoutClosingBracket = JSON.stringify(parsedData).slice(0, -1);
+          fs.writeFileSync(filePath, jsonWithoutClosingBracket);
+        } else {
+          // Empty array becomes opening bracket
+          fs.writeFileSync(filePath, '[');
+        }
       }
     } catch (error) {
-      console.error('Error preparing JSON file for append:', error);
-      // Non-critical error, continue with append
+      console.error('[StreamExportService] Error preparing JSON file for append:', error);
+      throw error;
     }
   }
 
