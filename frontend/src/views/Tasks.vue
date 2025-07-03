@@ -7,7 +7,7 @@
 -->
 
 <template>
-  <task-list />
+  <task-list :enable-export="true" />
 </template>
 
 <script setup>

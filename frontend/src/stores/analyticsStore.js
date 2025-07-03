@@ -23,6 +23,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     tasksCreatedToday: 0,
     tasksCompletedToday: 0,
     recentActivity: [],
+    exportsOverTime: { labels: [], data: [] },
     lastUpdated: null
   })
 
@@ -66,6 +67,23 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       color: '#FF5252'
     }
   ])
+
+  const exportsTimeSeriesData = computed(() => ({
+    labels: analytics.value.exportsOverTime?.labels || [],
+    datasets: [
+      {
+        label: 'Exports',
+        data: analytics.value.exportsOverTime?.data || [],
+        backgroundColor: 'rgba(33, 150, 243, 0.2)',
+        borderColor: 'rgba(33, 150, 243, 1)',
+        borderWidth: 2,
+        pointBackgroundColor: 'rgba(33, 150, 243, 1)',
+        pointBorderColor: '#fff',
+        pointHoverBackgroundColor: '#fff',
+        pointHoverBorderColor: 'rgba(33, 150, 243, 1)'
+      }
+    ]
+  }))
 
   /**
    * Fetches analytics data from API
@@ -208,6 +226,23 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       socket.disconnect()
     }
   }
+  
+  /**
+   * Resets connection and attempts to reconnect
+   * @function resetConnection
+   */
+  function resetConnection() {
+    // Use our new resetConnection method from socket.js
+    socket.resetConnection()
+  }
+
+  // Auto-initialize socket listeners when store is first used
+  initializeSocketListeners()
+  
+  // If socket isn't connected yet, connect it
+  if (!socket.connected) {
+    connect()
+  }
 
   return {
     analytics,
@@ -217,6 +252,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     connected,
     statusData,
     priorityData,
+    exportsTimeSeriesData,
     fetchAnalytics,
     updateAnalytics,
     addNotification,
@@ -225,6 +261,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     initializeSocketListeners,
     cleanup,
     connect,
-    disconnect
+    disconnect,
+    resetConnection
   }
 })

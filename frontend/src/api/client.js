@@ -22,10 +22,11 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} [options={}] - Fetch options
-   * @returns {Promise<Object>} API response data
+   * @param {string} [responseFormat=null] - Optional response format ('blob', 'text', etc.)
+   * @returns {Promise<Object|Blob|string>} API response data
    * @throws {Error} Network or API errors
    */
-  async request(endpoint, options = {}) {
+  async request(endpoint, options = {}, responseFormat = null) {
     const url = `${this.baseURL}${endpoint}`
     const config = {
       headers: {
@@ -41,15 +42,33 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config)
-      const data = await response.json()
 
       if (!response.ok) {
+        // Try to get error message from response
+        const errorText = await response.text()
+        let errorMessage
+        try {
+          // Try to parse as JSON
+          const errorData = JSON.parse(errorText)
+          errorMessage = errorData.message
+        } catch {
+          // Use text as is
+          errorMessage = errorText
+        }
         throw new Error(
-          data.message || `HTTP error! status: ${response.status}`
+          errorMessage || `HTTP error! status: ${response.status}`
         )
       }
 
-      return data
+      // Process response based on format
+      if (responseFormat === 'blob') {
+        return await response.blob()
+      } else if (responseFormat === 'text') {
+        return await response.text()
+      } else {
+        // Default to JSON
+        return await response.json()
+      }
     } catch (error) {
       console.error('API Request failed:', error)
       throw error
@@ -74,13 +93,18 @@ class ApiClient {
    * @async
    * @param {string} endpoint - API endpoint path
    * @param {Object} data - Request body data
-   * @returns {Promise<Object>} API response data
+   * @param {string} [responseFormat=null] - Optional response format ('blob', 'text', etc.)
+   * @returns {Promise<Object|Blob|string>} API response data
    */
-  async post(endpoint, data) {
-    return this.request(endpoint, {
-      method: 'POST',
-      body: data
-    })
+  async post(endpoint, data, responseFormat = null) {
+    return this.request(
+      endpoint,
+      {
+        method: 'POST',
+        body: data
+      },
+      responseFormat
+    )
   }
 
   /**
@@ -174,6 +198,70 @@ class ApiClient {
    */
   async getHealth() {
     return this.get('/health')
+  }
+
+  /**
+   * Starts a background task export process
+   * @async
+   * @param {string} format - Export format ('csv' or 'json')
+   * @param {Object} [params={}] - Export parameters including filters and refreshCache
+   * @param {string} [clientId=null] - Client socket ID for tracking
+   * @returns {Promise<Object>} Export job metadata with jobId
+   */
+  async exportTasks(format, params = {}, clientId = null) {
+    const { refreshCache, ...filters } = params;
+    return this.post('/exportTasks', {
+      format,
+      filters,
+      clientId,
+      refreshCache
+    })
+  }
+
+  /**
+   * Gets the status of an export job
+   * @async
+   * @param {string} jobId - Export job ID
+   * @returns {Promise<Object>} Export job status and metadata
+   */
+  async getExportStatus(jobId) {
+    try {
+      const response = await this.get(`/exportTasks/${jobId}`);
+      return response;
+    } catch (error) {
+      console.error(`Error getting export status for job ${jobId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Downloads a completed export file
+   * @async
+   * @param {string} jobId - Export job ID
+   * @returns {Promise<Blob>} Exported file as a blob for download
+   */
+  async downloadExport(jobId) {
+    try {
+      // Directly fetch the file as a blob - the server already knows the format
+      return await this.request(
+        `/exportTasks/${jobId}/download`,
+        { method: 'GET' },
+        'blob'
+      );
+    } catch (error) {
+      console.error(`Error downloading export job ${jobId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gets export history
+   * @async
+   * @param {Object} [params={}] - Pagination parameters
+   * @returns {Promise<Object>} Export history with pagination
+   */
+  async getExportHistory(params = {}) {
+    return this.get('/exportHistory', params)
   }
 }
 

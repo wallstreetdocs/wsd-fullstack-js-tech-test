@@ -18,11 +18,31 @@
         <v-icon left>mdi-plus</v-icon>
         New Task
       </v-btn>
+      <template v-if="enableExport">
+        <div class="ml-2"></div>
+        <v-menu>
+          <template #activator="{ props }">
+            <v-btn color="primary" v-bind="props">
+              <v-icon left>mdi-download</v-icon>
+              Export Tasks
+            </v-btn>
+          </template>
+          <v-list>
+            <v-list-item @click="exportTasks('csv')">
+              <v-list-item-title>CSV Format</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="exportTasks('json')">
+              <v-list-item-title>JSON Format</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
+      </template>
     </div>
 
     <v-card class="mb-4">
       <v-card-text>
         <v-row>
+          <!-- Basic filters -->
           <v-col cols="12" md="3">
             <v-select
               v-model="filters.status"
@@ -58,6 +78,117 @@
             ></v-select>
           </v-col>
         </v-row>
+
+        <!-- Advanced filters toggle -->
+        <v-row>
+          <v-col cols="12">
+            <v-btn
+              variant="text"
+              color="primary"
+              class="px-0"
+              @click="showAdvancedFilters = !showAdvancedFilters"
+            >
+              <v-icon
+                :icon="
+                  showAdvancedFilters ? 'mdi-chevron-up' : 'mdi-chevron-down'
+                "
+                class="mr-1"
+              ></v-icon>
+              {{
+                showAdvancedFilters
+                  ? 'Hide Advanced Filters'
+                  : 'Show Advanced Filters'
+              }}
+            </v-btn>
+          </v-col>
+        </v-row>
+
+        <!-- Advanced filters -->
+        <v-expand-transition>
+          <div v-if="showAdvancedFilters">
+            <v-row>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="filters.search"
+                  label="Search in title/description"
+                  clearable
+                  hide-details
+                  prepend-inner-icon="mdi-magnify"
+                  @update:model-value="updateFilters"
+                ></v-text-field>
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <v-select
+                  v-model="filters.estimatedTimeRange"
+                  :items="timeRangeOptions"
+                  label="Estimated Time"
+                  clearable
+                  hide-details
+                  @update:model-value="updateFilters"
+                ></v-select>
+              </v-col>
+            </v-row>
+
+            <v-row>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="filters.createdAfter"
+                  label="Created after"
+                  type="date"
+                  clearable
+                  hide-details
+                  @update:model-value="updateFilters"
+                ></v-text-field>
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="filters.createdBefore"
+                  label="Created before"
+                  type="date"
+                  clearable
+                  hide-details
+                  @update:model-value="updateFilters"
+                ></v-text-field>
+              </v-col>
+            </v-row>
+
+            <v-row v-if="filters.status === 'completed'">
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="filters.completedAfter"
+                  label="Completed after"
+                  type="date"
+                  clearable
+                  hide-details
+                  @update:model-value="updateFilters"
+                ></v-text-field>
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="filters.completedBefore"
+                  label="Completed before"
+                  type="date"
+                  clearable
+                  hide-details
+                  @update:model-value="updateFilters"
+                ></v-text-field>
+              </v-col>
+            </v-row>
+
+            <v-row v-if="enableExport">
+              <v-col cols="12">
+                <v-checkbox
+                  v-model="filters.refreshCache"
+                  label="Refresh export cache (ignore cached results)"
+                  hide-details
+                ></v-checkbox>
+              </v-col>
+            </v-row>
+          </div>
+        </v-expand-transition>
       </v-card-text>
     </v-card>
 
@@ -160,26 +291,51 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Export Progress Bar -->
+    <export-progress-bar/>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, defineProps } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
+import { useExportStore } from '../stores/exportStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+import ExportProgressBar from './ExportProgressBar.vue'
+
+const props = defineProps({
+  enableExport: {
+    type: Boolean,
+    default: false
+  }
+})
 
 const taskStore = useTaskStore()
+const exportStore = useExportStore()
 
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
 const selectedTask = ref(null)
+const showAdvancedFilters = ref(false)
 
+// Use local filter state synced with the store
 const filters = reactive({
+  // Basic filters
   status: '',
   priority: '',
   sortBy: 'createdAt',
-  sortOrder: 'desc'
+  sortOrder: 'desc',
+
+  // Advanced filters
+  search: '',
+  createdAfter: '',
+  createdBefore: '',
+  completedAfter: '',
+  completedBefore: '',
+  estimatedTimeRange: null, // This will be transformed to estimatedTimeLt/estimatedTimeGte
+  refreshCache: false // Export-only flag to refresh cache
 })
 
 const statusOptions = [
@@ -207,8 +363,83 @@ const orderOptions = [
   { title: 'Oldest First', value: 'asc' }
 ]
 
+const timeRangeOptions = [
+  { title: 'Less than 30 minutes', value: 'lt30' },
+  { title: '30-60 minutes', value: '30to60' },
+  { title: '1-2 hours', value: '60to120' },
+  { title: '2-4 hours', value: '120to240' },
+  { title: 'More than 4 hours', value: 'gt240' }
+]
+
 function updateFilters() {
   taskStore.updateFilters(filters)
+}
+
+// Transform filters into API-compatible format for export
+function transformFiltersForExport() {
+  const transformed = { ...filters }
+
+  // Extract refreshCache flag separately - it's not a mongo filter
+  const refreshCache = filters.refreshCache
+  delete transformed.refreshCache
+
+  // Convert date strings to ISO format
+  if (filters.createdAfter) {
+    transformed.createdAfter = new Date(filters.createdAfter).toISOString()
+  }
+
+  if (filters.createdBefore) {
+    transformed.createdBefore = new Date(
+      `${filters.createdBefore}T23:59:59`
+    ).toISOString()
+  }
+
+  if (filters.completedAfter) {
+    transformed.completedAfter = new Date(filters.completedAfter).toISOString()
+  }
+
+  if (filters.completedBefore) {
+    transformed.completedBefore = new Date(
+      `${filters.completedBefore}T23:59:59`
+    ).toISOString()
+  }
+
+  // Handle estimated time range transformation
+  if (filters.estimatedTimeRange) {
+    // Remove the range property since it's just for UI
+    delete transformed.estimatedTimeRange
+
+    // Add the appropriate time range filters
+    switch (filters.estimatedTimeRange) {
+      case 'lt30':
+        transformed.estimatedTimeLt = 30
+        break
+      case '30to60':
+        transformed.estimatedTimeGte = 30
+        transformed.estimatedTimeLt = 60
+        break
+      case '60to120':
+        transformed.estimatedTimeGte = 60
+        transformed.estimatedTimeLt = 120
+        break
+      case '120to240':
+        transformed.estimatedTimeGte = 120
+        transformed.estimatedTimeLt = 240
+        break
+      case 'gt240':
+        transformed.estimatedTimeGte = 240
+        break
+    }
+  }
+
+  // Remove any empty filters
+  Object.keys(transformed).forEach((key) => {
+    if (transformed[key] === '' || transformed[key] === null) {
+      delete transformed[key]
+    }
+  })
+
+  return { filters: transformed, refreshCache }
 }
 
 function editTask(task) {
@@ -272,6 +503,20 @@ function formatPriority(priority) {
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString()
+}
+
+async function exportTasks(format) {
+  try {
+    // Use the filter transformation for export
+    const { filters: cleanedFilters, refreshCache } = transformFiltersForExport()
+
+    // Use transformed and cleaned filters with refresh cache flag
+    await exportStore.exportTasks(format, cleanedFilters, refreshCache)
+    
+  } catch (error) {
+    console.error('Export failed to start:', error)
+    window.alert(`Export failed to start: ${error.message}`)
+  }
 }
 
 onMounted(() => {

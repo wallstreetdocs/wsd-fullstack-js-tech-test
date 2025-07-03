@@ -4,6 +4,8 @@
  */
 
 import AnalyticsService from '../services/analyticsService.js';
+import ExportHandler from './exportHandler.js';
+import ExportService from '../services/exportService.js';
 
 /**
  * Handles Socket.IO connections and real-time events
@@ -16,6 +18,12 @@ class SocketHandlers {
    */
   constructor(io) {
     this.io = io;
+    this.exportHandler = new ExportHandler(io, this.broadcastNotification.bind(this), this.broadcastAnalyticsUpdate.bind(this));
+    this.jobStateManager = this.exportHandler.jobStateManager; // Make jobStateManager available
+
+    // Connect ExportService to JobStateManager for direct notifications
+    ExportService.setJobStateManager(this.jobStateManager);
+
     this.setupEventHandlers();
   }
 
@@ -41,6 +49,9 @@ class SocketHandlers {
           socket.emit('analytics-error', { message: 'Failed to get analytics data' });
         }
       });
+
+      // Register export-related event handlers
+      this.exportHandler.registerHandlers(socket);
 
       socket.on('disconnect', () => {
         console.log(`🔌 Client disconnected: ${socket.id}`);
