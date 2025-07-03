@@ -127,7 +127,7 @@ const exportJobSchema = new mongoose.Schema(
     lastCheckpointFileSize: {
       type: Number,
       default: 0
-    },
+    }
   },
   {
     timestamps: true

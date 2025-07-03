@@ -73,7 +73,6 @@ const gracefulShutdown = async (signal) => {
     // Pause job queue
     await jobQueue.pause();
 
-
     // Close server
     server.close(() => {
       process.exit(0);
@@ -91,18 +90,6 @@ const gracefulShutdown = async (signal) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
-  // Log but don't exit for unhandled rejections
-});
-
 /**
  * Initializes database connections and starts the Express server
  * @async
@@ -113,7 +100,6 @@ const startServer = async () => {
   try {
     await connectMongoDB();
     await connectRedis();
-
 
     // Initialize job queue
     await jobQueue.initialize();

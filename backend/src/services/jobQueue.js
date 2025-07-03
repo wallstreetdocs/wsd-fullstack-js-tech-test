@@ -135,7 +135,7 @@ class JobQueue extends EventEmitter {
       let jobData;
       try {
         jobData = JSON.parse(jobDetails.data);
-      } catch (error) {
+      } catch {
         await redisClient.del(`${this.jobStatusPrefix}${jobId}`);
         // Continue processing
         this.processNextJob();
@@ -163,7 +163,7 @@ class JobQueue extends EventEmitter {
 
       // Continue processing next job immediately
       this.processNextJob();
-    } catch (error) {
+    } catch {
       // Wait and try again
       setTimeout(() => this.processNextJob(), 1000);
     }
@@ -228,45 +228,8 @@ class JobQueue extends EventEmitter {
       if (!this.processing) {
         this.startProcessing();
       }
-    } catch (err) {
+    } catch {
       // Handle error but continue processing
-    }
-  }
-
-  /**
-   * Get job status
-   * @param {string} jobId - Job ID
-   * @returns {Promise<Object>} Job status object
-   */
-  async getJobStatus(jobId) {
-    try {
-      const jobStatus = await redisClient.hgetall(`${this.jobStatusPrefix}${jobId}`);
-
-      if (!jobStatus) {
-        return { id: jobId, status: 'not_found' };
-      }
-
-      // Parse result if exists
-      if (jobStatus.result) {
-        try {
-          jobStatus.result = JSON.parse(jobStatus.result);
-        } catch (e) {
-          // If parse fails, keep as string
-        }
-      }
-
-      // Parse data if exists
-      if (jobStatus.data) {
-        try {
-          jobStatus.data = JSON.parse(jobStatus.data);
-        } catch (e) {
-          // If parse fails, keep as string
-        }
-      }
-
-      return { id: jobId, ...jobStatus };
-    } catch (error) {
-      return { id: jobId, status: 'error', error: error.message };
     }
   }
 
@@ -295,9 +258,7 @@ class JobQueue extends EventEmitter {
    * @returns {Promise<void>}
    */
   async recoverPendingJobs() {
-  
-    let recoveredCount = 0;
-    let cleanedCount = 0;
+
     let cursor = '0';
 
     try {
@@ -310,12 +271,7 @@ class JobQueue extends EventEmitter {
 
         for (const key of keys) {
           try {
-            const wasRecovered = await this.recoverSingleJob(key);
-            if (wasRecovered === 'recovered') {
-              recoveredCount++;
-            } else if (wasRecovered === 'cleaned') {
-              cleanedCount++;
-            }
+            await this.recoverSingleJob(key);
           } catch (error) {
             console.error(`Failed to recover job ${key}:`, error.message);
           }
@@ -388,14 +344,14 @@ class JobQueue extends EventEmitter {
       const multi = redisClient.multi();
       multi.zrem(this.queueName, jobId);
       multi.del(`${this.jobStatusPrefix}${jobId}`);
-      
+
       const results = await multi.exec();
-      
+
       // Check if job was actually removed from the queue (first operation result)
       const removedFromQueue = results && results[0] && results[0][1] > 0;
-      
+
       return removedFromQueue;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -435,7 +391,7 @@ class JobQueue extends EventEmitter {
 
       // Cleanup complete
       return cleanedCount;
-    } catch (error) {
+    } catch {
       // Error in cleanup process, non-critical
       return 0;
     }

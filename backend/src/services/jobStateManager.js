@@ -19,9 +19,8 @@ class JobStateManager {
    * @param {Object} job - Export job object
    * @param {string} source - Source of the update
    */
-  broadcastJobStatus(job, source = 'unknown') {
+  broadcastJobStatus(job, _source = 'unknown') {
     if (!job) return;
-
 
     // Create unified status event with all needed data
     const statusEvent = {

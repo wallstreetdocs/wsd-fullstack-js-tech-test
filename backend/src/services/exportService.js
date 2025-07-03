@@ -49,7 +49,6 @@ class ExportService extends EventEmitter {
 
   }
 
-
   /**
    * Handle export job processing
    * @private
@@ -84,7 +83,7 @@ class ExportService extends EventEmitter {
       // Check cache first (skip if refreshCache is true)
       const cacheKey = this.generateCacheKey(job);
       let cachedResult = null;
-      
+
       if (job.refreshCache) {
         // Invalidate existing cache entry for this job
         await redisClient.del(cacheKey);
@@ -132,14 +131,14 @@ class ExportService extends EventEmitter {
           const currentJob = await ExportJob.findById(job._id);
           if (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'paused')) {
             // Save progress for resume (offset-based approach)
-            await ExportJob.findByIdAndUpdate(job._id, { 
-              processedItems 
+            await ExportJob.findByIdAndUpdate(job._id, {
+              processedItems
             });
-            
+
             // Return status signal instead of throwing error
             return { stopped: true, reason: currentJob.status, processedItems };
           }
-          
+
           // Save checkpoint every 1000 items
           if (processedItems % 1000 === 0 || processedItems === totalItems) {
             try {
@@ -152,7 +151,7 @@ class ExportService extends EventEmitter {
               console.error('[ExportService] Error saving checkpoint:', checkpointError);
             }
           }
-          
+
           // Update progress through JobStateManager if available
           if (this.jobStateManager) {
             this.jobStateManager.updateProgress(
@@ -175,24 +174,24 @@ class ExportService extends EventEmitter {
       };
 
       // Check if job has existing temp file for resume
-      const tempFilePath = (job.tempFilePath && fs.existsSync(job.tempFilePath)) 
-        ? job.tempFilePath 
+      const tempFilePath = (job.tempFilePath && fs.existsSync(job.tempFilePath))
+        ? job.tempFilePath
         : path.join(os.tmpdir(), `export_${Date.now()}.${job.format}`);
 
       // Validate checkpoint and truncate file if needed
       let resumeFromCount = job.processedItems || 0;
       const isResuming = job.tempFilePath && fs.existsSync(job.tempFilePath);
-      
+
       if (isResuming && job.lastCheckpointItems > 0) {
         try {
           const currentFileSize = fs.statSync(job.tempFilePath).size;
-          
+
           // If file is larger than checkpoint, truncate to checkpoint
           if (currentFileSize > job.lastCheckpointFileSize) {
             console.log(`[ExportService] File size mismatch, truncating to checkpoint: ${job.lastCheckpointItems} items`);
             fs.truncateSync(job.tempFilePath, job.lastCheckpointFileSize);
             resumeFromCount = job.lastCheckpointItems;
-            
+
             // Update job to reflect checkpoint position
             job.processedItems = job.lastCheckpointItems;
             await job.save();
@@ -212,8 +211,8 @@ class ExportService extends EventEmitter {
       }
 
       // Stream data to file - append if resuming, otherwise create new
-      const writeStream = fs.createWriteStream(tempFilePath, { 
-        flags: isResuming ? 'a' : 'w' 
+      const writeStream = fs.createWriteStream(tempFilePath, {
+        flags: isResuming ? 'a' : 'w'
       });
 
       // Save temp file path immediately for resume capability
@@ -221,15 +220,15 @@ class ExportService extends EventEmitter {
         job.tempFilePath = tempFilePath;
         await job.save();
       }
-      
+
       // Determine if we're appending to existing file (use the isResuming flag we already calculated)
       const isAppending = isResuming;
-      
+
       // For JSON files, prepare the existing file for appending
       if (isAppending && job.format === 'json') {
         await streamExportService.prepareJsonFileForAppend(job.tempFilePath);
       }
-      
+
       // Create streams with offset-based resume capability
       const taskStream = streamExportService.createTaskStream(query, sort, resumeFromCount);
       const progressStream = streamExportService.createProgressStream(progressCallback, totalCount, resumeFromCount);
@@ -243,10 +242,10 @@ class ExportService extends EventEmitter {
           .pipe(progressStream)
           .pipe(formatStream)
           .pipe(writeStream);
-          
+
         // Store resolver so progressStream can trigger completion
         progressStream._pipelineResolver = resolve;
-          
+
         pipeline.on('finish', () => resolve({ completed: true }));
         pipeline.on('error', (error) => {
           // For actual errors, reject normally
@@ -265,15 +264,15 @@ class ExportService extends EventEmitter {
           } catch (cleanupError) {
             console.error('[ExportService] Error cleaning up temp file:', cleanupError);
           }
-          
+
           callback({ success: false, cancelled: true, error: new Error('Export cancelled') });
         } else if (result.reason === 'paused') {
           // Keep temp file for paused exports and signal pause with current progress
-          callback({ 
-            paused: true, 
-            progress: { 
+          callback({
+            paused: true,
+            progress: {
               processedItems: result.processedItems || job.processedItems
-            } 
+            }
           });
         }
         return;
@@ -409,7 +408,6 @@ class ExportService extends EventEmitter {
     return exportJob;
   }
 
-
   /**
    * Generate a cache key for an export job based on its parameters
    * @param {Object} jobParams - Export job parameters
@@ -452,7 +450,6 @@ class ExportService extends EventEmitter {
       : exportConfig.smallExportCacheTTL;
   }
 
-
   /**
    * Cache temp file path and metadata for future use
    * @private
@@ -477,7 +474,7 @@ class ExportService extends EventEmitter {
 
       await redisClient.setex(cacheKey, cacheTTL, JSON.stringify(cacheData));
     } catch (cacheError) {
-        console.error('[ExportService] Error caching temp file result:', cacheError);
+      console.error('[ExportService] Error caching temp file result:', cacheError);
     }
   }
 
@@ -537,7 +534,7 @@ class ExportService extends EventEmitter {
                   fs.unlinkSync(data.tempFilePath);
                 }
               }
-            } catch (parseError) {
+            } catch {
               // Ignore parsing errors
             }
             await redisClient.del(cacheKey);
@@ -653,7 +650,7 @@ class ExportService extends EventEmitter {
       if (this.jobStateManager) {
         await this.jobStateManager.resumeJob(jobId, 'resume-export');
       }
-      
+
       // Re-add the job to the queue for processing - it will detect resume state and continue from cursor
       await jobQueue.addJob(
         jobId,

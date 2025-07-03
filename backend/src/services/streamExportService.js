@@ -6,7 +6,6 @@
 import { Transform } from 'stream';
 import fs from 'fs';
 import Task from '../models/Task.js';
-import { buildQueryFromFilters, buildSortFromFilters } from '../utils/queryBuilder.js';
 
 class StreamExportService {
   /**
@@ -69,13 +68,11 @@ class StreamExportService {
    */
   createJsonTransform(isAppending = false) {
     let isFirstChunk = true;
-    let tasksProcessed = 0;
 
     return new Transform({
       objectMode: true,
       transform(task, encoding, callback) {
         try {
-          tasksProcessed++;
 
           // Format the JSON for this task
           const taskJson = JSON.stringify(task);
@@ -123,16 +120,16 @@ class StreamExportService {
         const fd = fs.openSync(filePath, 'r+');
         const buffer = Buffer.alloc(10);
         const bytesRead = fs.readSync(fd, buffer, 0, 10, Math.max(0, stats.size - 10));
-        
+
         const lastContent = buffer.slice(0, bytesRead).toString();
         const lastBracketIndex = lastContent.lastIndexOf(']');
-        
+
         if (lastBracketIndex !== -1) {
           // Truncate the file to remove the closing bracket
           const truncatePosition = stats.size - (bytesRead - lastBracketIndex);
           fs.ftruncateSync(fd, truncatePosition);
         }
-        
+
         fs.closeSync(fd);
       }
     } catch (error) {
@@ -165,20 +162,20 @@ class StreamExportService {
           if (shouldReport) {
             try {
               const result = await progressCallback(progress, processedCount, safeTotal);
-              
+
               // Check if job was stopped (paused/cancelled)
               if (result && result.stopped) {
                 // Signal pipeline to stop with the reason and current progress
                 if (this._pipelineResolver) {
-                  this._pipelineResolver({ 
-                    stopped: true, 
+                  this._pipelineResolver({
+                    stopped: true,
                     reason: result.reason,
                     processedItems: result.processedItems
                   });
                 }
                 return;
               }
-              
+
               lastReportedProgress = progress;
             } catch (progressError) {
               console.error('[StreamExportService] Progress callback error:', progressError);

@@ -9,7 +9,6 @@ import ExportJob from '../models/ExportJob.js';
 import AnalyticsService from '../services/analyticsService.js';
 import ExportService from '../services/exportService.js';
 import { redisClient } from '../config/redis.js';
-import { buildQueryFromFilters, buildSortFromFilters } from '../utils/queryBuilder.js';
 
 const router = express.Router();
 

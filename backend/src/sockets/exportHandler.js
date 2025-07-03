@@ -279,14 +279,14 @@ class ExportHandler extends EventEmitter {
     });
 
     // Listen for job cancellation
-    jobQueue.on('job-cancelled', async ({ id, error }) => {
+    jobQueue.on('job-cancelled', async ({ id, _error }) => {
       try {
         // Use centralized state manager for cancelled job
         await this.jobStateManager.cancelJob(id, 'job-queue');
 
         // Broadcast notification
         this.notificationCallback(
-          `Export cancelled`,
+          'Export cancelled',
           'warning'
         );
       } catch (err) {

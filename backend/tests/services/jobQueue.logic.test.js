@@ -496,56 +496,5 @@ describe('Job Queue Logic Tests', () => {
       assert.strictEqual(mockRedisClient.del.mock.callCount(), 2);
       assert.strictEqual(mockRedisClient.zrem.mock.callCount(), 2);
     });
-
-    test('should get job status correctly', async () => {
-      const jobId = 'job123';
-      const jobStatus = {
-        status: 'processing',
-        progress: '50',
-        type: 'exportTasks',
-        data: '{"format":"csv","filters":{"status":"completed"}}',
-        result: '{"filename":"export.csv","totalItems":100}'
-      };
-
-      // Mock Redis get operation
-      mockRedisClient.hgetall.mock.mockImplementation(() => Promise.resolve(jobStatus));
-
-      // Simulate getJobStatus logic
-      const getJobStatus = async (jobId) => {
-        const jobStatus = await mockRedisClient.hgetall(`${jobQueue.jobStatusPrefix}${jobId}`);
-
-        if (!jobStatus) {
-          return { id: jobId, status: 'not_found' };
-        }
-
-        // Parse result if exists
-        if (jobStatus.result) {
-          try {
-            jobStatus.result = JSON.parse(jobStatus.result);
-          } catch (e) {
-            // If parse fails, keep as string
-          }
-        }
-
-        // Parse data if exists
-        if (jobStatus.data) {
-          try {
-            jobStatus.data = JSON.parse(jobStatus.data);
-          } catch (e) {
-            // If parse fails, keep as string
-          }
-        }
-
-        return { id: jobId, ...jobStatus };
-      };
-
-      const result = await getJobStatus(jobId);
-
-      assert.strictEqual(result.id, jobId);
-      assert.strictEqual(result.status, 'processing');
-      assert.strictEqual(result.progress, '50');
-      assert.deepStrictEqual(result.result, { filename: 'export.csv', totalItems: 100 });
-      assert.deepStrictEqual(result.data, { format: 'csv', filters: { status: 'completed' } });
-    });
   });
 });
