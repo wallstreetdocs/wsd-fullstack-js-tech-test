@@ -3,18 +3,19 @@
  * @module index
  */
 
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import express from 'express';
+import { createServer } from 'http';
+import path from 'path';
+import { Server } from 'socket.io';
 
 import { connectMongoDB } from './config/database.js';
 import { connectRedis } from './config/redis.js';
-import apiRoutes, { setSocketHandlers } from './routes/api.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
-import SocketHandlers from './sockets/socketHandlers.js';
+import apiRoutes, { setSocketHandlers } from './routes/api.js';
 import AnalyticsService from './services/analyticsService.js';
+import SocketHandlers from './sockets/socketHandlers.js';
 
 dotenv.config();
 
@@ -30,15 +31,20 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    credentials: true
+  })
+);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/api', apiRoutes);
+
+// Serve the exports directory statically for direct file access
+app.use('/exports', express.static(path.join(process.cwd(), 'exports')));
 
 app.get('/', (req, res) => {
   res.json({
@@ -111,7 +117,6 @@ const startServer = async () => {
         console.error('Error in metrics broadcast interval:', error);
       }
     }, 15000);
-
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);

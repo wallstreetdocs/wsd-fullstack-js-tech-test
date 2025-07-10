@@ -18,6 +18,10 @@
         <v-icon left>mdi-plus</v-icon>
         New Task
       </v-btn>
+      <v-btn color="secondary" class="ml-2" @click="showExportDialog = true">
+        <v-icon left>mdi-export-variant</v-icon>
+        Export
+      </v-btn>
     </div>
 
     <v-card class="mb-4">
@@ -160,11 +164,63 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="showExportDialog" max-width="500">
+      <v-card>
+        <v-card-title>Export Tasks</v-card-title>
+        <v-card-text>
+          <v-radio-group v-model="exportFormat" row>
+            <v-radio label="CSV" value="csv" />
+            <v-radio label="JSON" value="json" />
+          </v-radio-group>
+          <div v-if="exportLoading" class="text-center my-4">
+            <v-progress-circular indeterminate color="primary" />
+            <div>Exporting...</div>
+          </div>
+          <div v-if="exportError" class="text-center my-2">
+            <v-alert type="error">{{ exportError }}</v-alert>
+          </div>
+          <div v-if="exportSuccess" class="text-center my-2">
+            <v-alert type="success">Export successful!</v-alert>
+          </div>
+          <!-- Export progress bar -->
+          <div v-if="exportLoading || percent > 0" class="my-2">
+            <v-progress-linear :value="percent" height="8" color="primary" />
+            <div class="text-caption text-center mt-1">{{ percent }}%</div>
+          </div>
+          <div v-if="downloadLink" class="text-center my-2">
+            <v-btn
+              :href="downloadLink"
+              target="_blank"
+              color="success"
+              download
+            >
+              Download Exported File
+            </v-btn>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn @click="showExportDialog = false" :disabled="exportLoading"
+            >Cancel</v-btn
+          >
+          <v-btn
+            color="primary"
+            @click="startExport"
+            :loading="exportLoading"
+            :disabled="exportLoading"
+            >Start Export</v-btn
+          >
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
+import apiClient from '../api/client.js'
+import { useExportProgress } from '../composables/useExportProgress.js'
 import { useTaskStore } from '../stores/taskStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
 
@@ -173,8 +229,10 @@ const taskStore = useTaskStore()
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
+const showExportDialog = ref(false)
 const selectedTask = ref(null)
 
+// Use local filters state only
 const filters = reactive({
   status: '',
   priority: '',
@@ -207,6 +265,14 @@ const orderOptions = [
   { title: 'Oldest First', value: 'asc' }
 ]
 
+const exportFormat = ref('csv')
+const exportLoading = ref(false)
+const exportError = ref('')
+const exportSuccess = ref(false)
+
+// Export progress composable
+const { percent, downloadLink } = useExportProgress()
+
 function updateFilters() {
   taskStore.updateFilters(filters)
 }
@@ -235,6 +301,33 @@ async function confirmDelete() {
     selectedTask.value = null
   }
 }
+
+async function startExport() {
+  exportLoading.value = true
+  exportError.value = ''
+  exportSuccess.value = false
+  try {
+    await apiClient.exportTasks({
+      filters,
+      format: exportFormat.value
+    })
+    exportSuccess.value = true
+    // Optionally close dialog after download
+    // showExportDialog.value = false
+  } catch (err) {
+    exportError.value = err.message || 'Export failed'
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+// Reset progress when dialog closes
+watch(showExportDialog, (val) => {
+  if (!val) {
+    percent.value = 0
+    downloadLink.value = ''
+  }
+})
 
 function getStatusColor(status) {
   switch (status) {

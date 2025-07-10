@@ -75,12 +75,12 @@
  * @description Main application component with navigation and real-time features
  */
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { useAnalyticsStore } from './stores/analyticsStore.js'
-import { useTaskStore } from './stores/taskStore.js'
 import ConnectionStatus from './components/ConnectionStatus.vue'
 import NotificationDrawer from './components/NotificationDrawer.vue'
+import { useAnalyticsStore } from './stores/analyticsStore.js'
+import { useTaskStore } from './stores/taskStore.js'
 
 const theme = useTheme()
 const analyticsStore = useAnalyticsStore()
@@ -92,7 +92,8 @@ const showNotifications = ref(false)
 const menuItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard', to: '/' },
   { title: 'Tasks', icon: 'mdi-format-list-checks', to: '/tasks' },
-  { title: 'Analytics', icon: 'mdi-chart-line', to: '/analytics' }
+  { title: 'Analytics', icon: 'mdi-chart-line', to: '/analytics' },
+  { title: 'Export History', icon: 'mdi-history', to: '/export-history' }
 ]
 
 const themeIcon = computed(() =>

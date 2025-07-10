@@ -4,9 +4,10 @@
  */
 
 import express from 'express';
+import { redisClient } from '../config/redis.js';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
-import { redisClient } from '../config/redis.js';
+import exportRoutes from './exportRoutes.js';
 
 const router = express.Router();
 
@@ -277,5 +278,7 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+router.use('/exports', exportRoutes);
 
 export default router;
