@@ -3,7 +3,8 @@
  * @module api/client
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 /**
  * HTTP client for communicating with the task management API
@@ -174,6 +175,54 @@ class ApiClient {
    */
   async getHealth() {
     return this.get('/health')
+  }
+
+  /**
+   * Exports tasks with given filters and format, triggers file download
+   * @async
+   * @param {Object} params - { filters: Object, format: 'csv' | 'json' }
+   * @returns {Promise<void>} Resolves when download is triggered
+   */
+  async exportTasks({ filters, format }) {
+    // Only include non-empty filters
+    const exportFilters = {}
+    if (filters.status) exportFilters.status = filters.status
+    if (filters.priority) exportFilters.priority = filters.priority
+    if (filters.sortBy) exportFilters.sortBy = filters.sortBy
+    if (filters.sortOrder) exportFilters.sortOrder = filters.sortOrder
+
+    const response = await fetch(`${this.baseURL}/exports/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filters: exportFilters,
+        format
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `Export failed: ${response.statusText}`)
+    }
+
+    let blob, filename
+    if (format === 'json') {
+      const text = await response.text()
+      blob = new Blob([text], { type: 'application/json' })
+      filename = 'tasks-export.json'
+    } else {
+      const text = await response.text()
+      blob = new Blob([text], { type: 'text/csv' })
+      filename = 'tasks-export.csv'
+    }
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
   }
 }
 
