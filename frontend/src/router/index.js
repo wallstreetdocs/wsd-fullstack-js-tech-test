@@ -4,9 +4,6 @@
  */
 
 import { createRouter, createWebHistory } from 'vue-router'
-import Dashboard from '../views/Dashboard.vue'
-import Tasks from '../views/Tasks.vue'
-import Analytics from '../views/Analytics.vue'
 
 /**
  * Application route definitions
@@ -17,17 +14,22 @@ const routes = [
   {
     path: '/',
     name: 'Dashboard',
-    component: Dashboard
+    component: () => import('../views/Dashboard.vue')
   },
   {
     path: '/tasks',
     name: 'Tasks',
-    component: Tasks
+    component: () => import('../views/Tasks.vue')
   },
   {
     path: '/analytics',
     name: 'Analytics',
-    component: Analytics
+    component: () => import('../views/Analytics.vue')
+  },
+  {
+    path: '/export-history',
+    name: 'ExportHistory',
+    component: () => import('../views/ExportHistory.vue')
   }
 ]
 

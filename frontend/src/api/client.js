@@ -228,6 +228,16 @@ class ApiClient {
   }
 
   /**
+   * Retrieves export history with optional filtering and pagination
+   * @async
+   * @param {Object} [params={}] - Query parameters (page, limit, status, format, sortBy, sortOrder, etc.)
+   * @returns {Promise<Object>} Paginated export history response
+   */
+  async getExportHistory(params = {}) {
+    return this.get('/exports', params)
+  }
+
+  /**
    * Extracts filename from Content-Disposition header
    * @private
    * @param {Response} response - Fetch response object
