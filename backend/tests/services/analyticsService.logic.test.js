@@ -1,3 +1,16 @@
+/**
+ * ⚠️ Note:
+ * These tests currently do not exercise the actual System Under Test (SUT).
+ * They duplicate internal logic and operate on mock data only, meaning
+ * changes to the real implementation won't cause any test failures.
+ *
+ * This can lead to false confidence rather than actual validation.
+ *
+ * ✅ Suggested Improvement:
+ * Replace isolated logic tests with behavior-focused tests that
+ * call real service methods and assert on their outputs and side effects.
+ */
+
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert';
 

@@ -1,3 +1,15 @@
+/**
+ * ⚠️ Warning:
+ * These tests do not invoke the actual route handlers.
+ * They only simulate request/response objects and manually re-implement logic inside the test.
+ *
+ * 🔄 This provides no real coverage — actual route/controller changes will not break these tests.
+ *
+ * ✅ Suggested Improvement:
+ * Mount the real Express router using Supertest and test behavior end-to-end with mocks injected,
+ * so tests validate the real request-handling logic, response structure, and side-effects.
+ */
+
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert';
 import express from 'express';

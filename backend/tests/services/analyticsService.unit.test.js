@@ -1,3 +1,12 @@
+/**
+ * ⚠️ Warning:
+ * 🔍 Smoke test to verify that AnalyticsService exposes the expected static methods.
+ *
+ * ⚠️ This only checks method existence — not correctness or behavior.
+ * ✅ For more valuable coverage, prefer testing actual method outputs
+ * with controlled inputs and mock dependencies to verify real functionality.
+ */
+
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import AnalyticsService from '../../src/services/analyticsService.js';
