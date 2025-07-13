@@ -25,10 +25,21 @@ export const useTaskStore = defineStore('tasks', () => {
   })
 
   const filters = ref({
-    status: '',
-    priority: '',
+    status: [],
+    priority: [],
     sortBy: 'createdAt',
-    sortOrder: 'desc'
+    sortOrder: 'desc',
+    createdWithin: '',
+    completedWithin: '',
+    overdueTasks: false,
+    recentlyCompleted: false,
+    noEstimate: false,
+    estimatedTimeMin: null,
+    estimatedTimeMax: null,
+    actualTimeMin: null,
+    actualTimeMax: null,
+    underEstimated: false,
+    overEstimated: false
   })
 
   const pendingTasks = computed(() =>
@@ -78,8 +89,18 @@ export const useTaskStore = defineStore('tasks', () => {
         ...params
       }
 
+      // Clean up query parameters
       Object.keys(queryParams).forEach((key) => {
-        if (!queryParams[key]) delete queryParams[key]
+        const value = queryParams[key]
+        // Remove empty arrays, null values, empty strings, and false booleans
+        if (
+          (Array.isArray(value) && value.length === 0) ||
+          value === null ||
+          value === '' ||
+          (typeof value === 'boolean' && !value)
+        ) {
+          delete queryParams[key]
+        }
       })
 
       const response = await apiClient.getTasks(queryParams)
