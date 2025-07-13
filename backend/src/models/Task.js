@@ -71,6 +71,14 @@ const taskSchema = new mongoose.Schema({
 taskSchema.index({ status: 1, priority: 1 });
 taskSchema.index({ createdAt: -1 });
 
+// Additional indexes for advanced filtering
+taskSchema.index({ completedAt: -1 });
+taskSchema.index({ updatedAt: -1 });
+taskSchema.index({ estimatedTime: 1 });
+taskSchema.index({ actualTime: 1 });
+taskSchema.index({ status: 1, createdAt: -1 });
+taskSchema.index({ status: 1, completedAt: -1 });
+
 /**
  * Pre-save middleware to automatically set completedAt when status changes to completed
  * @param {Function} next - Mongoose next function

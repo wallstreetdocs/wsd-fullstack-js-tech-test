@@ -7,6 +7,7 @@ import express from 'express';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
+import { buildTaskQuery, buildSortQuery, sanitizeFilters } from '../services/queryBuilderService.js';
 
 const router = express.Router();
 
@@ -27,40 +28,56 @@ export const setSocketHandlers = (handlers) => {
 };
 
 /**
- * GET /tasks - Retrieve tasks with pagination, filtering, and sorting
+ * GET /tasks - Retrieve tasks with advanced filtering, pagination, and sorting
  * @name GetTasks
  * @function
  * @param {Object} req.query - Query parameters
  * @param {number} [req.query.page=1] - Page number for pagination
  * @param {number} [req.query.limit=10] - Number of tasks per page
- * @param {string} [req.query.status] - Filter by task status
- * @param {string} [req.query.priority] - Filter by task priority
+ * @param {string|string[]} [req.query.status] - Filter by task status (single value or comma-separated)
+ * @param {string|string[]} [req.query.priority] - Filter by task priority (single value or comma-separated)
+ * @param {string} [req.query.createdAfter] - Filter tasks created after date (ISO string)
+ * @param {string} [req.query.createdBefore] - Filter tasks created before date (ISO string)
+ * @param {string} [req.query.completedAfter] - Filter tasks completed after date (ISO string)
+ * @param {string} [req.query.completedBefore] - Filter tasks completed before date (ISO string)
+ * @param {string} [req.query.updatedAfter] - Filter tasks updated after date (ISO string)
+ * @param {string} [req.query.updatedBefore] - Filter tasks updated before date (ISO string)
+ * @param {string} [req.query.createdWithin] - Filter by predefined date range (last-7-days, last-30-days, last-90-days)
+ * @param {string} [req.query.completedWithin] - Filter by predefined completion date range
+ * @param {boolean} [req.query.overdueTasks] - Filter for overdue tasks (in-progress > 7 days)
+ * @param {boolean} [req.query.recentlyCompleted] - Filter for recently completed tasks (< 7 days)
+ * @param {number} [req.query.estimatedTimeMin] - Minimum estimated time in minutes
+ * @param {number} [req.query.estimatedTimeMax] - Maximum estimated time in minutes
+ * @param {number} [req.query.actualTimeMin] - Minimum actual time in minutes
+ * @param {number} [req.query.actualTimeMax] - Maximum actual time in minutes
+ * @param {boolean} [req.query.underEstimated] - Filter for tasks that took longer than estimated
+ * @param {boolean} [req.query.overEstimated] - Filter for tasks that took less than estimated
+ * @param {boolean} [req.query.noEstimate] - Filter for tasks without estimated time
  * @param {string} [req.query.sortBy=createdAt] - Field to sort by
  * @param {string} [req.query.sortOrder=desc] - Sort order (asc/desc)
- * @returns {Object} Paginated tasks with metadata
+ * @returns {Object} Paginated tasks with metadata and applied filters
  */
 router.get('/tasks', async (req, res, next) => {
   try {
     const {
       page = 1,
       limit = 10,
-      status,
-      priority,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
+      ...rawFilters
     } = req.query;
 
-    const query = {};
-    if (status) query.status = status;
-    if (priority) query.priority = priority;
+    // Sanitize and validate filters
+    const filters = sanitizeFilters(rawFilters);
 
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    // Build MongoDB query using the reusable query builder
+    const query = buildTaskQuery(filters);
+    const sort = buildSortQuery(filters);
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
 
     const tasks = await Task.find(query)
       .sort(sort)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum)
       .exec();
 
     const total = await Task.countDocuments(query);
@@ -70,10 +87,10 @@ router.get('/tasks', async (req, res, next) => {
       data: {
         tasks,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: pageNum,
+          limit: limitNum,
           total,
-          pages: Math.ceil(total / limit)
+          pages: Math.ceil(total / limitNum)
         }
       }
     });
