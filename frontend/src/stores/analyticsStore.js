@@ -24,6 +24,10 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     tasksCreatedToday: 0,
     tasksCompletedToday: 0,
     recentActivity: [],
+    totalExports: 0,
+    completedExports: 0,
+    failedExports: 0,
+    lastExportDate: null,
     lastUpdated: null
   })
 

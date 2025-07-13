@@ -178,16 +178,6 @@ async function processExportJob(job) {
     // Mark as failed
     await exportRecord.markFailed(error.message, executionTime);
 
-    // Broadcast failure
-    if (global.socketHandlers) {
-      global.socketHandlers.broadcastExportUpdate('failed', {
-        jobId: exportRecord._id.toString(),
-        status: 'failed',
-        filename: exportRecord.filename,
-        error: error.message
-      });
-    }
-
     console.error(`❌ Export failed: ${error.message}`);
     throw error;
   }

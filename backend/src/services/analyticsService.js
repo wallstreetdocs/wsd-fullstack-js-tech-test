@@ -4,6 +4,7 @@
  */
 
 import Task from '../models/Task.js';
+import ExportHistory from '../models/ExportHistory.js';
 import { redisClient } from '../config/redis.js';
 
 /**
@@ -30,14 +31,23 @@ class AnalyticsService {
         return JSON.parse(cached);
       }
 
-      const metrics = await this.calculateMetrics();
+      const [taskMetrics, exportMetrics] = await Promise.all([
+        this.calculateMetrics(),
+        this.getExportMetrics()
+      ]);
 
-      await redisClient.setex(cacheKey, 10, JSON.stringify(metrics));
+      const combinedMetrics = { ...taskMetrics, ...exportMetrics };
 
-      return metrics;
+      await redisClient.setex(cacheKey, 10, JSON.stringify(combinedMetrics));
+
+      return combinedMetrics;
     } catch (error) {
       console.error('Error getting task metrics:', error);
-      return await this.calculateMetrics();
+      const [taskMetrics, exportMetrics] = await Promise.all([
+        this.calculateMetrics(),
+        this.getExportMetrics()
+      ]);
+      return { ...taskMetrics, ...exportMetrics };
     }
   }
 
@@ -289,6 +299,61 @@ class AnalyticsService {
     } catch (error) {
       console.error('Error fixing completed tasks data:', error);
     }
+  }
+
+  /**
+   * Retrieves export metrics with Redis caching
+   * @static
+   * @async
+   * @returns {Promise<Object>} Complete export metrics object
+   * @throws {Error} Falls back to direct calculation if cache fails
+   */
+  static async getExportMetrics() {
+    try {
+      const cacheKey = 'export_metrics';
+      const cached = await redisClient.get(cacheKey);
+
+      if (cached) {
+        return JSON.parse(cached);
+      }
+
+      const metrics = await this.calculateExportMetrics();
+
+      await redisClient.setex(cacheKey, 10, JSON.stringify(metrics));
+
+      return metrics;
+    } catch (error) {
+      console.error('Error getting export metrics:', error);
+      return await this.calculateExportMetrics();
+    }
+  }
+
+  /**
+   * Calculates all export metrics from database
+   * @static
+   * @async
+   * @returns {Promise<Object>} Comprehensive metrics object with all analytics data
+   */
+  static async calculateExportMetrics() {
+    const [
+      totalExports,
+      completedExports,
+      failedExports,
+      lastExportRecord
+    ] = await Promise.all([
+      ExportHistory.countDocuments(),
+      ExportHistory.countDocuments({ status: 'completed' }),
+      ExportHistory.countDocuments({ status: 'failed' }),
+      ExportHistory.findOne().sort({ createdAt: -1 }).select('createdAt')
+    ]);
+
+    return {
+      totalExports,
+      completedExports,
+      failedExports,
+      lastExportDate: lastExportRecord ? lastExportRecord.createdAt.toISOString() : null,
+      lastUpdated: new Date().toISOString()
+    };
   }
 }
 

@@ -68,6 +68,41 @@
       </v-col>
     </v-row>
 
+    <v-row class="mt-4" v-if="!analyticsStore.loading">
+      <v-col cols="12" md="3">
+        <metric-card
+          title="Total Exports"
+          :value="analyticsStore.analytics.totalExports ?? 0"
+          icon="mdi-export"
+          color="purple"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
+        <metric-card
+          title="Completed Exports"
+          :value="analyticsStore.analytics.completedExports ?? 0"
+          icon="mdi-check-circle-outline"
+          color="green"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
+        <metric-card
+          title="Failed Exports"
+          :value="analyticsStore.analytics.failedExports ?? 0"
+          icon="mdi-alert-circle-outline"
+          color="red"
+        />
+      </v-col>
+      <v-col cols="12" md="3">
+        <metric-card
+          title="Last Export"
+          :value="formatLastExportDate(analyticsStore.analytics.lastExportDate ?? null)"
+          icon="mdi-calendar-clock"
+          color="blue-grey"
+        />
+      </v-col>
+    </v-row>
+
     <v-row class="mt-4">
       <v-col cols="12" md="8">
         <quick-task-list />
@@ -92,8 +127,15 @@ import RecentActivity from '../components/RecentActivity.vue'
 const analyticsStore = useAnalyticsStore()
 const taskStore = useTaskStore()
 
+function formatLastExportDate(timestamp) {
+  if (!timestamp) return 'N/A'
+  const date = new Date(timestamp)
+  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+}
+
 onMounted(() => {
   taskStore.fetchTasks({ limit: 5 })
+  analyticsStore.fetchAnalytics()
 })
 </script>
 
