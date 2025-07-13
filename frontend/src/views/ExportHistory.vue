@@ -287,20 +287,7 @@ const headers = [
   { title: 'Actions', key: 'actions', sortable: false, width: '100px' }
 ]
 
-const stats = computed(() => {
-  if (!exports.value || !Array.isArray(exports.value)) {
-    return { total: 0, completed: 0, failed: 0, pending: 0 }
-  }
-  
-  const total = exports.value.length
-  const completed = exports.value.filter(
-    (exp) => exp.status === 'completed'
-  ).length
-  const failed = exports.value.filter((exp) => exp.status === 'failed').length
-  const pending = exports.value.filter((exp) => exp.status === 'pending').length
-
-  return { total, completed, failed, pending }
-})
+const stats = ref({ total: 0, completed: 0, failed: 0, pending: 0 })
 
 // Watch filters for changes
 const stopFiltersWatch = watch(
@@ -346,6 +333,7 @@ async function fetchExportHistory() {
         ...pagination.value,
         ...response.data.pagination
       }
+      stats.value = response.data.overallStats
     }
   } catch (error) {
     if (isMounted.value) {

@@ -370,13 +370,16 @@ export const getExportHistory = async (options = {}) => {
   const skip = (page - 1) * limit;
 
   // Execute queries
-  const [exports, totalCount] = await Promise.all([
+  const [exports, totalCount, completedCount, failedCount, pendingCount] = await Promise.all([
     ExportHistory.find(query)
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .lean(),
-    ExportHistory.countDocuments(query)
+    ExportHistory.countDocuments(query),
+    ExportHistory.countDocuments({ status: 'completed' }),
+    ExportHistory.countDocuments({ status: 'failed' }),
+    ExportHistory.countDocuments({ status: 'pending' })
   ]);
 
   const totalPages = Math.ceil(totalCount / limit);
@@ -391,6 +394,12 @@ export const getExportHistory = async (options = {}) => {
         pages: totalPages,
         hasNext: page < totalPages,
         hasPrev: page > 1
+      },
+      overallStats: {
+        total: totalCount,
+        completed: completedCount,
+        failed: failedCount,
+        pending: pendingCount
       }
     }
   };
