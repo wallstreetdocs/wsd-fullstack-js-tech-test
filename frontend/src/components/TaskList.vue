@@ -14,8 +14,37 @@
     <div class="d-flex align-center mb-4">
       <h2 class="page-title">Tasks</h2>
       <v-spacer></v-spacer>
+      <v-menu>
+        <template #activator="{ props }">
+          <v-btn
+            v-bind="props"
+            variant="outlined"
+            color="secondary"
+            :loading="exportLoading"
+            class="me-2"
+          >
+            <v-icon start>mdi-download</v-icon>
+            Export
+            <v-icon end>mdi-chevron-down</v-icon>
+          </v-btn>
+        </template>
+        <v-list>
+          <v-list-item @click="exportTasks('csv')">
+            <v-list-item-title>
+              <v-icon start>mdi-file-delimited</v-icon>
+              Export as CSV
+            </v-list-item-title>
+          </v-list-item>
+          <v-list-item @click="exportTasks('json')">
+            <v-list-item-title>
+              <v-icon start>mdi-code-json</v-icon>
+              Export as JSON
+            </v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
       <v-btn color="primary" @click="showCreateDialog = true">
-        <v-icon left>mdi-plus</v-icon>
+        <v-icon start>mdi-plus</v-icon>
         New Task
       </v-btn>
     </div>
@@ -26,23 +55,33 @@
         <v-icon class="me-2">mdi-filter-variant</v-icon>
         Filters
         <v-spacer></v-spacer>
-        <v-btn 
+        <v-chip
           v-if="hasActiveFilters"
-          variant="text" 
-          size="small" 
+          color="primary"
+          variant="outlined"
+          size="small"
+          class="me-2"
+        >
+          {{ getFilterCount() }} filter{{ getFilterCount() === 1 ? '' : 's' }}
+          active
+        </v-chip>
+        <v-btn
+          v-if="hasActiveFilters"
+          variant="text"
+          size="small"
           color="error"
           @click="clearAllFilters"
         >
           <v-icon start>mdi-filter-remove</v-icon>
           Clear All
         </v-btn>
-        <v-btn 
+        <v-btn
           :icon="showAdvancedFilters ? 'mdi-chevron-up' : 'mdi-chevron-down'"
           variant="text"
           @click="showAdvancedFilters = !showAdvancedFilters"
         ></v-btn>
       </v-card-title>
-      
+
       <!-- Active Filters Display -->
       <v-card-text v-if="hasActiveFilters" class="pt-0">
         <div class="d-flex flex-wrap ga-2">
@@ -58,7 +97,7 @@
             <v-icon start>mdi-circle</v-icon>
             {{ formatStatus(status) }}
           </v-chip>
-          
+
           <!-- Priority Chips -->
           <v-chip
             v-for="priority in filters.priority"
@@ -174,13 +213,16 @@
                 >
                   {{ item.title }}
                 </v-chip>
-                <span v-if="index === 2" class="text-grey text-caption align-self-center">
+                <span
+                  v-if="index === 2"
+                  class="text-grey text-caption align-self-center"
+                >
                   (+{{ filters.status.length - 2 }} others)
                 </span>
               </template>
             </v-select>
           </v-col>
-          
+
           <v-col cols="12" md="4">
             <v-select
               v-model="filters.priority"
@@ -202,7 +244,10 @@
                 >
                   {{ item.title }}
                 </v-chip>
-                <span v-if="index === 2" class="text-grey text-caption align-self-center">
+                <span
+                  v-if="index === 2"
+                  class="text-grey text-caption align-self-center"
+                >
                   (+{{ filters.priority.length - 2 }} others)
                 </span>
               </template>
@@ -235,7 +280,7 @@
         <v-expand-transition>
           <div v-if="showAdvancedFilters">
             <v-divider class="mb-4"></v-divider>
-            
+
             <!-- Date Filters -->
             <v-row class="mb-4">
               <v-col cols="12" md="6">
@@ -251,7 +296,7 @@
                   </template>
                 </v-select>
               </v-col>
-              
+
               <v-col cols="12" md="6">
                 <v-select
                   v-model="filters.completedWithin"
@@ -278,7 +323,7 @@
                     hide-details
                     @update:model-value="updateFilters"
                   ></v-switch>
-                  
+
                   <v-switch
                     v-model="filters.recentlyCompleted"
                     label="Recently completed (last 7 days)"
@@ -375,7 +420,7 @@
                         hide-details
                         @update:model-value="updateFilters"
                       ></v-switch>
-                      
+
                       <v-switch
                         v-model="filters.overEstimated"
                         label="Over-estimated (took less than expected)"
@@ -507,6 +552,7 @@ const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
 const selectedTask = ref(null)
 const showAdvancedFilters = ref(false)
+const exportLoading = ref(false)
 
 // Enhanced filters with all advanced options
 const filters = reactive({
@@ -579,9 +625,9 @@ const hasActiveFilters = computed(() => {
 function updateFilters() {
   // Clean up empty values before sending
   const cleanFilters = { ...filters }
-  
+
   // Remove empty arrays and null values
-  Object.keys(cleanFilters).forEach(key => {
+  Object.keys(cleanFilters).forEach((key) => {
     if (Array.isArray(cleanFilters[key]) && cleanFilters[key].length === 0) {
       delete cleanFilters[key]
     } else if (cleanFilters[key] === null || cleanFilters[key] === '') {
@@ -590,7 +636,7 @@ function updateFilters() {
       delete cleanFilters[key]
     }
   })
-  
+
   taskStore.updateFilters(cleanFilters)
 }
 
@@ -648,19 +694,47 @@ function clearAllFilters() {
   updateFilters()
 }
 
+/**
+ * Gets count of active filters for display
+ * @returns {number} Number of active filters
+ */
+function getFilterCount() {
+  let count = 0
+
+  if (filters.status.length > 0) count++
+  if (filters.priority.length > 0) count++
+  if (filters.createdWithin) count++
+  if (filters.completedWithin) count++
+  if (filters.overdueTasks) count++
+  if (filters.recentlyCompleted) count++
+  if (filters.noEstimate) count++
+  if (filters.estimatedTimeMin || filters.estimatedTimeMax) count++
+  if (filters.actualTimeMin || filters.actualTimeMax) count++
+  if (filters.underEstimated) count++
+  if (filters.overEstimated) count++
+
+  return count
+}
+
 function formatDateRange(range) {
   switch (range) {
-    case 'last-7-days': return 'Last 7 days'
-    case 'last-30-days': return 'Last 30 days'
-    case 'last-90-days': return 'Last 90 days'
-    default: return range
+    case 'last-7-days':
+      return 'Last 7 days'
+    case 'last-30-days':
+      return 'Last 30 days'
+    case 'last-90-days':
+      return 'Last 90 days'
+    default:
+      return range
   }
 }
 
 function formatTimeRange(type) {
-  const min = type === 'estimated' ? filters.estimatedTimeMin : filters.actualTimeMin
-  const max = type === 'estimated' ? filters.estimatedTimeMax : filters.actualTimeMax
-  
+  const min =
+    type === 'estimated' ? filters.estimatedTimeMin : filters.actualTimeMin
+  const max =
+    type === 'estimated' ? filters.estimatedTimeMax : filters.actualTimeMax
+
   if (min && max) {
     return `${min}-${max} min`
   } else if (min) {
@@ -732,6 +806,51 @@ function formatPriority(priority) {
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString()
+}
+
+/**
+ * Downloads file from blob with proper filename
+ * @param {Blob} blob - File blob
+ * @param {string} filename - Suggested filename
+ */
+function downloadFile(blob, filename) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}
+
+/**
+ * Exports tasks with current filters in specified format
+ * @async
+ * @param {string} format - Export format (csv, json)
+ */
+async function exportTasks(format) {
+  exportLoading.value = true
+
+  try {
+    const result = await taskStore.exportTasks(format)
+    const { blob, filename, metadata } = result
+
+    // Show success message with export details
+    if (metadata && metadata.totalExported !== undefined) {
+      console.log(
+        `Successfully exported ${metadata.totalExported} tasks as ${format.toUpperCase()}`
+      )
+    }
+
+    // Download the file
+    downloadFile(blob, filename)
+  } catch (error) {
+    console.error('Export failed:', error)
+    // You could show a snackbar or alert here
+  } finally {
+    exportLoading.value = false
+  }
 }
 
 onMounted(() => {

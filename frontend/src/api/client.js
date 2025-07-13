@@ -175,6 +175,72 @@ class ApiClient {
   async getHealth() {
     return this.get('/health')
   }
+
+  /**
+   * Exports tasks with current filters as CSV or JSON
+   * @async
+   * @param {Object} filters - Current filter state
+   * @param {string} [format='csv'] - Export format (csv, json)
+   * @returns {Promise<Blob>} File blob for download
+   */
+  async exportTasks(filters = {}, format = 'csv') {
+    const url = `${this.baseURL}/export/tasks`
+    const config = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        format,
+        ...filters
+      })
+    }
+
+    try {
+      const response = await fetch(url, config)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(
+          errorData.message || `Export failed! status: ${response.status}`
+        )
+      }
+
+      // Get export metadata from headers
+      const metadata = JSON.parse(
+        response.headers.get('X-Export-Metadata') || '{}'
+      )
+
+      // Get the file blob
+      const blob = await response.blob()
+
+      // Return both blob and metadata
+      return {
+        blob,
+        metadata,
+        filename:
+          this.getFilenameFromResponse(response) || `tasks-export.${format}`
+      }
+    } catch (error) {
+      console.error('Export request failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Extracts filename from Content-Disposition header
+   * @private
+   * @param {Response} response - Fetch response object
+   * @returns {string|null} Extracted filename
+   */
+  getFilenameFromResponse(response) {
+    const contentDisposition = response.headers.get('Content-Disposition')
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/)
+      return filenameMatch ? filenameMatch[1] : null
+    }
+    return null
+  }
 }
 
 export default new ApiClient()
