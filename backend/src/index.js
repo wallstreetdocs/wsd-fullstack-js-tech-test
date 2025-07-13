@@ -48,6 +48,7 @@ app.get('/', (req, res) => {
     endpoints: {
       tasks: '/api/tasks',
       analytics: '/api/analytics',
+      export: '/api/export',
       health: '/api/health'
     }
   });

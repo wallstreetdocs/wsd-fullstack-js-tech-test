@@ -4,10 +4,13 @@
  */
 
 import express from 'express';
+import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
 import { buildTaskQuery, buildSortQuery, sanitizeFilters } from '../services/queryBuilderService.js';
+import { exportTasks } from '../services/exportService.js';
 
 const router = express.Router();
 
@@ -26,6 +29,88 @@ let socketHandlers = null;
 export const setSocketHandlers = (handlers) => {
   socketHandlers = handlers;
 };
+
+/**
+ * POST /export/tasks - Export tasks with advanced filtering
+ * @name ExportTasks
+ * @function
+ * @param {Object} req.body - Export parameters
+ * @param {string} [req.body.format=csv] - Export format (csv, json)
+ * @param {string|string[]} [req.body.status] - Filter by task status
+ * @param {string|string[]} [req.body.priority] - Filter by task priority
+ * @param {string} [req.body.createdAfter] - Filter tasks created after date
+ * @param {string} [req.body.createdBefore] - Filter tasks created before date
+ * @param {string} [req.body.completedAfter] - Filter tasks completed after date
+ * @param {string} [req.body.completedBefore] - Filter tasks completed before date
+ * @param {string} [req.body.updatedAfter] - Filter tasks updated after date
+ * @param {string} [req.body.updatedBefore] - Filter tasks updated before date
+ * @param {string} [req.body.createdWithin] - Filter by predefined date range
+ * @param {string} [req.body.completedWithin] - Filter by predefined completion date range
+ * @param {boolean} [req.body.overdueTasks] - Filter for overdue tasks
+ * @param {boolean} [req.body.recentlyCompleted] - Filter for recently completed tasks
+ * @param {number} [req.body.estimatedTimeMin] - Minimum estimated time
+ * @param {number} [req.body.estimatedTimeMax] - Maximum estimated time
+ * @param {number} [req.body.actualTimeMin] - Minimum actual time
+ * @param {number} [req.body.actualTimeMax] - Maximum actual time
+ * @param {boolean} [req.body.underEstimated] - Filter for under-estimated tasks
+ * @param {boolean} [req.body.overEstimated] - Filter for over-estimated tasks
+ * @param {boolean} [req.body.noEstimate] - Filter for tasks without estimated time
+ * @returns {Object} File download response
+ */
+router.post('/export/tasks', async (req, res, next) => {
+  try {
+    const { format = 'csv', ...rawFilters } = req.body;
+    // Sanitize filters
+    const filters = sanitizeFilters(rawFilters);
+
+    // Export tasks using the export service (creates temporary file)
+    const exportResult = await exportTasks(filters, format);
+
+    // Set appropriate headers for file download
+    res.setHeader('Content-Type', exportResult.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+    res.setHeader('X-Export-Metadata', JSON.stringify({
+      taskCount: exportResult.taskCount,
+      format: exportResult.format,
+      generatedAt: exportResult.generatedAt,
+      processingTime: exportResult.processingTime
+    }));
+
+    // Stream the temporary file to HTTP response
+    const readStream = createReadStream(exportResult.filePath, { encoding: 'utf8' });
+
+    // Handle streaming errors
+    readStream.on('error', (error) => {
+      console.error('Error streaming export file:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Error streaming export file'
+        });
+      }
+    });
+
+    // Pipe the file stream directly to the HTTP response
+    readStream.pipe(res);
+
+    // Clean up the temporary file after streaming completes
+    readStream.on('end', () => {
+      console.log(`Export completed: ${exportResult.filename} (${exportResult.taskCount} tasks)`);
+
+      // Clean up the temporary file after 5 seconds
+      setTimeout(async () => {
+        try {
+          await fs.unlink(exportResult.filePath);
+        } catch (error) {
+          console.warn('Failed to cleanup export file:', error.message);
+        }
+      }, 5000);
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * GET /tasks - Retrieve tasks with advanced filtering, pagination, and sorting
