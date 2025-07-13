@@ -4,13 +4,12 @@
  */
 
 import express from 'express';
-import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
 import { buildTaskQuery, buildSortQuery, sanitizeFilters } from '../services/queryBuilderService.js';
-import { exportTasks } from '../services/exportService.js';
+import { exportTasks, getExportHistory } from '../services/exportService.js';
 
 const router = express.Router();
 
@@ -63,8 +62,14 @@ router.post('/export/tasks', async (req, res, next) => {
     // Sanitize filters
     const filters = sanitizeFilters(rawFilters);
 
+    // Prepare request info for tracking
+    const requestInfo = {
+      ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
+      userAgent: req.get('User-Agent') || 'unknown'
+    };
+
     // Export tasks using the export service (creates temporary file)
-    const exportResult = await exportTasks(filters, format);
+    const exportResult = await exportTasks(filters, format, requestInfo);
 
     // Set appropriate headers for file download
     res.setHeader('Content-Type', exportResult.mimeType);
@@ -73,7 +78,9 @@ router.post('/export/tasks', async (req, res, next) => {
       taskCount: exportResult.taskCount,
       format: exportResult.format,
       generatedAt: exportResult.generatedAt,
-      processingTime: exportResult.processingTime
+      processingTime: exportResult.processingTime,
+      exportId: exportResult.exportId,
+      fileSizeBytes: exportResult.fileSizeBytes
     }));
 
     // Stream the temporary file to HTTP response
@@ -96,15 +103,6 @@ router.post('/export/tasks', async (req, res, next) => {
     // Clean up the temporary file after streaming completes
     readStream.on('end', () => {
       console.log(`Export completed: ${exportResult.filename} (${exportResult.taskCount} tasks)`);
-
-      // Clean up the temporary file after 5 seconds
-      setTimeout(async () => {
-        try {
-          await fs.unlink(exportResult.filePath);
-        } catch (error) {
-          console.warn('Failed to cleanup export file:', error.message);
-        }
-      }, 5000);
     });
 
   } catch (error) {
@@ -360,6 +358,54 @@ router.get('/analytics', async (req, res, next) => {
     res.json({
       success: true,
       data: metrics
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /exports - Retrieve export history with filtering and pagination
+ * @name GetExportHistory
+ * @function
+ * @param {number} [req.query.page=1] - Page number
+ * @param {number} [req.query.limit=10] - Items per page
+ * @param {string|string[]} [req.query.status] - Filter by status (pending, completed, failed)
+ * @param {string|string[]} [req.query.format] - Filter by format (csv, json)
+ * @param {string} [req.query.sortBy=createdAt] - Sort field
+ * @param {string} [req.query.sortOrder=desc] - Sort order (asc, desc)
+ * @param {string} [req.query.dateFrom] - Filter exports from date
+ * @param {string} [req.query.dateTo] - Filter exports to date
+ * @returns {Object} Paginated export history
+ */
+router.get('/exports', async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      format,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      dateFrom,
+      dateTo
+    } = req.query;
+
+    const options = {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      status,
+      format,
+      sortBy,
+      sortOrder,
+      dateFrom,
+      dateTo
+    };
+
+    const result = await getExportHistory(options);
+    res.json({
+      success: true,
+      ...result
     });
   } catch (error) {
     next(error);

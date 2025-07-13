@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import path from 'path';
 import Task from '../models/Task.js';
+import ExportHistory from '../models/ExportHistory.js';
 import { buildTaskQuery, buildSortQuery } from './queryBuilderService.js';
 
 /**
@@ -33,13 +34,15 @@ const EXPORT_FORMATS = {
 };
 
 /**
- * Export tasks to specified format using streaming
+ * Export tasks to specified format using streaming with history tracking
  * @param {Object} filters - Query filters
  * @param {string} [format='csv'] - Export format (csv, json)
+ * @param {Object} [requestInfo={}] - Request information for tracking
  * @returns {Promise<Object>} Export result with file path and metadata
  */
-export const exportTasks = async (filters = {}, format = 'csv') => {
+export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}) => {
   const startTime = Date.now();
+  let exportRecord = null;
 
   // Validate format
   if (!EXPORT_FORMATS[format]) {
@@ -56,22 +59,57 @@ export const exportTasks = async (filters = {}, format = 'csv') => {
   const filename = generateFilename(format, filters);
   const filePath = await getFilePath(filename);
 
-  // Stream tasks directly to file
-  const taskCount = await formatConfig.streamer(query, sort, filePath);
+  try {
+    // Get total count for history record
+    const totalRecords = await Task.countDocuments(query);
 
-  const endTime = Date.now();
+    // Create export history record
+    exportRecord = await ExportHistory.createExportRecord({
+      filename,
+      format,
+      totalRecords,
+      filters,
+      ipAddress: requestInfo.ipAddress,
+      userAgent: requestInfo.userAgent
+    });
 
-  return {
-    success: true,
-    filePath,
-    filename,
-    format,
-    mimeType: formatConfig.mimeType,
-    taskCount,
-    appliedFilters: filters,
-    generatedAt: new Date().toISOString(),
-    processingTime: endTime - startTime
-  };
+    // Stream tasks directly to file
+    const taskCount = await formatConfig.streamer(query, sort, filePath);
+
+    // Get file size
+    const stats = await fs.stat(filePath);
+    const fileSizeBytes = stats.size;
+
+    const endTime = Date.now();
+    const executionTime = endTime - startTime;
+
+    // Mark export as completed
+    await exportRecord.markCompleted(fileSizeBytes, executionTime);
+
+    return {
+      success: true,
+      filePath,
+      filename,
+      format,
+      mimeType: formatConfig.mimeType,
+      taskCount,
+      appliedFilters: filters,
+      generatedAt: new Date().toISOString(),
+      processingTime: executionTime,
+      exportId: exportRecord._id,
+      fileSizeBytes
+    };
+  } catch (error) {
+    const endTime = Date.now();
+    const executionTime = endTime - startTime;
+
+    // Mark export as failed if we have a record
+    if (exportRecord) {
+      await exportRecord.markFailed(error.message, executionTime);
+    }
+
+    throw error;
+  }
 };
 
 /**
@@ -229,6 +267,9 @@ const generateFilename = (format, filters) => {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const extension = EXPORT_FORMATS[format].extension;
 
+  // Generate unique ID for filename
+  const uniqueId = Math.random().toString(36).substring(2, 8);
+
   // Create descriptive filename based on filters
   let filterDesc = '';
   if (filters.status) {
@@ -241,7 +282,7 @@ const generateFilename = (format, filters) => {
     filterDesc += `-${filters.createdWithin}`;
   }
 
-  return `tasks-export${filterDesc}-${timestamp}.${extension}`;
+  return `tasks-export${filterDesc}-${timestamp}-${uniqueId}.${extension}`;
 };
 
 /**
@@ -260,5 +301,78 @@ const getFilePath = async (filename) => {
   }
 
   return path.join(exportsDir, filename);
+};
+
+/**
+ * Get export history with filtering and pagination
+ * @param {Object} options - Query options
+ * @returns {Promise<Object>} Export history with pagination
+ */
+export const getExportHistory = async (options = {}) => {
+  const {
+    page = 1,
+    limit = 10,
+    status,
+    format,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    dateFrom,
+    dateTo
+  } = options;
+
+  // Build query filters
+  const query = {};
+
+  if (status) {
+    query.status = Array.isArray(status) ? { $in: status } : status;
+  }
+
+  if (format) {
+    query.format = Array.isArray(format) ? { $in: format } : format;
+  }
+
+  // Date range filtering
+  if (dateFrom || dateTo) {
+    query.createdAt = {};
+    if (dateFrom) {
+      query.createdAt.$gte = new Date(dateFrom);
+    }
+    if (dateTo) {
+      query.createdAt.$lte = new Date(dateTo);
+    }
+  }
+
+  // Build sort object
+  const sort = {};
+  sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+  // Calculate pagination
+  const skip = (page - 1) * limit;
+
+  // Execute queries
+  const [exports, totalCount] = await Promise.all([
+    ExportHistory.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    ExportHistory.countDocuments(query)
+  ]);
+
+  const totalPages = Math.ceil(totalCount / limit);
+
+  return {
+    data: {
+      exports,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    }
+  };
 };
 

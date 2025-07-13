@@ -8,6 +8,7 @@
 import mongoose from 'mongoose';
 import { connectMongoDB } from '../src/config/database.js';
 import Task from '../src/models/Task.js';
+import ExportHistory from '../src/models/ExportHistory.js';
 
 /**
  * Sample task titles categorized by type
@@ -249,22 +250,151 @@ function generateSampleTasks(count = 50) {
 }
 
 /**
+ * Generate sample export history with realistic data
+ * @param {number} count - Number of export records to generate
+ * @returns {Array} Array of export history objects
+ */
+function generateSampleExportHistory(count = 20) {
+  const exports = [];
+  const formats = ['csv', 'json'];
+  const statuses = ['pending', 'completed', 'failed'];
+  
+  // Status distribution: 70% completed, 20% failed, 10% pending
+  const statusWeights = {
+    'completed': 0.7,
+    'failed': 0.2,
+    'pending': 0.1
+  };
+  
+  // Sample filter combinations that users might use
+  const filterCombinations = [
+    {},
+    { status: ['pending'] },
+    { status: ['completed'] },
+    { status: ['in-progress'] },
+    { priority: ['high'] },
+    { priority: ['low', 'medium'] },
+    { status: ['pending', 'in-progress'] },
+    { createdWithin: 'last-30-days' },
+    { createdWithin: 'last-7-days' },
+    { status: ['completed'], priority: ['high'] },
+    { overdueTasks: true },
+    { recentlyCompleted: true },
+    { status: ['pending'], createdWithin: 'last-7-days' },
+    { priority: ['high'], overdueTasks: true }
+  ];
+  
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
+    'curl/7.68.0',
+    'Postman Runtime/7.29.2'
+  ];
+  
+  const ipAddresses = [
+    '192.168.1.100',
+    '10.0.0.50',
+    '172.16.0.25',
+    '127.0.0.1',
+    '203.0.113.45',
+    '198.51.100.78'
+  ];
+  
+  // Date range for export history (last 2 months)
+  const now = new Date();
+  const twoMonthsAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
+  
+  for (let i = 0; i < count; i++) {
+    // Select format and status
+    const format = getRandomElement(formats);
+    
+    const statusRand = Math.random();
+    let status;
+    if (statusRand < statusWeights.completed) {
+      status = 'completed';
+    } else if (statusRand < statusWeights.completed + statusWeights.failed) {
+      status = 'failed';
+    } else {
+      status = 'pending';
+    }
+    
+    // Generate timestamps
+    const createdAt = getRandomDate(twoMonthsAgo, now);
+    const updatedAt = status === 'pending' ? createdAt : getRandomDate(createdAt, now);
+    
+    // Generate realistic data based on status
+    const totalRecords = getRandomInt(5, 500);
+    const filters = getRandomElement(filterCombinations);
+    
+    // Generate filename
+    const timestamp = createdAt.toISOString().replace(/[:.]/g, '-');
+    const uniqueId = Math.random().toString(36).substring(2, 8);
+    let filterDesc = '';
+    if (filters.status) {
+      filterDesc += `-${Array.isArray(filters.status) ? filters.status.join('-') : filters.status}`;
+    }
+    if (filters.priority) {
+      filterDesc += `-${Array.isArray(filters.priority) ? filters.priority.join('-') : filters.priority}`;
+    }
+    const filename = `tasks-export${filterDesc}-${timestamp}-${uniqueId}.${format}`;
+    
+    const exportRecord = {
+      filename,
+      format,
+      status,
+      totalRecords,
+      filters,
+      ipAddress: getRandomElement(ipAddresses),
+      userAgent: getRandomElement(userAgents),
+      createdAt,
+      updatedAt
+    };
+    
+    // Add completion-specific data
+    if (status === 'completed') {
+      exportRecord.executionTimeMs = getRandomInt(500, 15000); // 0.5 to 15 seconds
+      exportRecord.fileSizeBytes = getRandomInt(1024, 1024 * 1024); // 1KB to 1MB
+    } else if (status === 'failed') {
+      exportRecord.executionTimeMs = getRandomInt(100, 5000); // Failed faster
+      exportRecord.errorMessage = getRandomElement([
+        'Database connection timeout',
+        'Insufficient memory to process request',
+        'Invalid filter parameters provided',
+        'Export file size exceeds maximum limit',
+        'Temporary storage unavailable',
+        'Query execution timeout'
+      ]);
+    }
+    
+    exports.push(exportRecord);
+  }
+  
+  return exports;
+}
+
+/**
  * Clear existing tasks and seed new sample data
  * @async
  * @function seedTasks
  * @param {number} count - Number of tasks to generate (default: 50)
+ * @param {number} exportCount - Number of export history records to generate (default: 20)
  */
-async function seedTasks(count = 50) {
+async function seedTasks(count = 50, exportCount = 20) {
   try {
     console.log('🌱 Starting task data seeding...');
     
     // Connect to database
     await connectMongoDB();
     
-    // Clear existing tasks
-    console.log('🗑️  Clearing existing tasks...');
-    const deleteResult = await Task.deleteMany({});
-    console.log(`   Deleted ${deleteResult.deletedCount} existing tasks`);
+    // Clear existing data
+    console.log('🗑️  Clearing existing data...');
+    const taskDeleteResult = await Task.deleteMany({});
+    console.log(`   Deleted ${taskDeleteResult.deletedCount} existing tasks`);
+    
+    const exportDeleteResult = await ExportHistory.deleteMany({});
+    console.log(`   Deleted ${exportDeleteResult.deletedCount} existing export records`);
     
     // Generate sample tasks
     console.log(`🎲 Generating ${count} sample tasks...`);
@@ -272,8 +402,17 @@ async function seedTasks(count = 50) {
     
     // Insert tasks into database
     console.log('💾 Inserting tasks into database...');
-    const insertResult = await Task.insertMany(sampleTasks);
-    console.log(`   Successfully inserted ${insertResult.length} tasks`);
+    const taskInsertResult = await Task.insertMany(sampleTasks);
+    console.log(`   Successfully inserted ${taskInsertResult.length} tasks`);
+    
+    // Generate sample export history
+    console.log(`📊 Generating ${exportCount} sample export records...`);
+    const sampleExports = generateSampleExportHistory(exportCount);
+    
+    // Insert export history into database
+    console.log('💾 Inserting export history into database...');
+    const exportInsertResult = await ExportHistory.insertMany(sampleExports);
+    console.log(`   Successfully inserted ${exportInsertResult.length} export records`);
     
     // Display summary statistics
     const stats = await Task.aggregate([
@@ -305,13 +444,49 @@ async function seedTasks(count = 50) {
       console.log(`   ${stat._id}: ${stat.count} tasks`);
     });
     
+    // Display export history statistics
+    const exportStats = await ExportHistory.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const formatStats = await ExportHistory.aggregate([
+      {
+        $group: {
+          _id: '$format',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
     const totalTasks = await Task.countDocuments();
     const completedTasks = await Task.countDocuments({ status: 'completed' });
     const completionRate = ((completedTasks / totalTasks) * 100).toFixed(1);
     
+    const totalExports = await ExportHistory.countDocuments();
+    const completedExports = await ExportHistory.countDocuments({ status: 'completed' });
+    const exportSuccessRate = totalExports > 0 ? ((completedExports / totalExports) * 100).toFixed(1) : 0;
+    
+    console.log('\n📊 Export History Summary:');
+    console.log('Status Distribution:');
+    exportStats.forEach(stat => {
+      console.log(`   ${stat._id}: ${stat.count} exports`);
+    });
+    
+    console.log('Format Distribution:');
+    formatStats.forEach(stat => {
+      console.log(`   ${stat._id}: ${stat.count} exports`);
+    });
+    
     console.log(`\n✅ Seeding completed successfully!`);
     console.log(`   Total tasks: ${totalTasks}`);
-    console.log(`   Completion rate: ${completionRate}%`);
+    console.log(`   Task completion rate: ${completionRate}%`);
+    console.log(`   Total exports: ${totalExports}`);
+    console.log(`   Export success rate: ${exportSuccessRate}%`);
     
   } catch (error) {
     console.error('❌ Error seeding tasks:', error);
@@ -326,15 +501,22 @@ async function seedTasks(count = 50) {
 // Run seeding if script is executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
   const count = process.argv[2] ? parseInt(process.argv[2]) : 50;
+  const exportCount = process.argv[3] ? parseInt(process.argv[3]) : 20;
   
   if (isNaN(count) || count <= 0) {
     console.error('❌ Please provide a valid number of tasks to generate');
-    console.log('Usage: node scripts/seed-tasks.js [count]');
+    console.log('Usage: node scripts/seed-tasks.js [taskCount] [exportCount]');
     process.exit(1);
   }
   
-  console.log(`🚀 Seeding ${count} sample tasks...`);
-  seedTasks(count);
+  if (isNaN(exportCount) || exportCount < 0) {
+    console.error('❌ Please provide a valid number of export records to generate');
+    console.log('Usage: node scripts/seed-tasks.js [taskCount] [exportCount]');
+    process.exit(1);
+  }
+  
+  console.log(`🚀 Seeding ${count} sample tasks and ${exportCount} export records...`);
+  seedTasks(count, exportCount);
 }
 
-export { seedTasks, generateSampleTasks };
+export { seedTasks, generateSampleTasks, generateSampleExportHistory };
