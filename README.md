@@ -176,7 +176,15 @@ No authentication required for this technical assessment.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/analytics` | Get task analytics and metrics |
+| GET | `/analytics` | Get task and export analytics and metrics |
+
+#### Exports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/export/tasks` | Create an asynchronous task export job |
+| GET | `/exports` | Retrieve export history with filtering and pagination |
+| GET | `/exports/download/:filename` | Download an exported file |
 
 #### Health
 
@@ -218,6 +226,44 @@ curl -X PUT http://localhost:3001/api/tasks/123456 \
 - `priority`: Filter by priority (low, medium, high)
 - `sortBy`: Sort field (createdAt, updatedAt, title, priority, status)
 - `sortOrder`: Sort direction (asc, desc)
+
+### Body Parameters (POST /export/tasks)
+
+- `format`: Export format (`csv` or `json`, default: `csv`)
+- `status`: Filter by task status (single value or array: `pending`, `in-progress`, `completed`)
+- `priority`: Filter by task priority (single value or array: `low`, `medium`, `high`)
+- `createdAfter`: Filter tasks created after date (ISO string)
+- `createdBefore`: Filter tasks created before date (ISO string)
+- `completedAfter`: Filter tasks completed after date (ISO string)
+- `completedBefore`: Filter tasks completed before date (ISO string)
+- `updatedAfter`: Filter tasks updated after date (ISO string)
+- `updatedBefore`: Filter tasks updated before date (ISO string)
+- `createdWithin`: Filter by predefined date range (`last-7-days`, `last-30-days`, `last-90-days`)
+- `completedWithin`: Filter by predefined completion date range
+- `overdueTasks`: Filter for overdue tasks (boolean)
+- `recentlyCompleted`: Filter for recently completed tasks (boolean)
+- `estimatedTimeMin`: Minimum estimated time
+- `estimatedTimeMax`: Maximum estimated time
+- `actualTimeMin`: Minimum actual time
+- `actualTimeMax`: Maximum actual time
+- `underEstimated`: Filter for tasks that took longer than estimated (boolean)
+- `overEstimated`: Filter for tasks that took less than estimated (boolean)
+- `noEstimate`: Filter for tasks without estimated time (boolean)
+
+### Query Parameters (GET /exports)
+
+- `page`: Page number (default: 1)
+- `limit`: Items per page (default: 10)
+- `status`: Filter by status (single value or array: `pending`, `processing`, `completed`, `failed`)
+- `format`: Filter by format (single value or array: `csv`, `json`)
+- `sortBy`: Sort field (default: `createdAt`)
+- `sortOrder`: Sort direction (`asc`, `desc`, default: `desc`)
+- `dateFrom`: Filter exports from date (ISO string)
+- `dateTo`: Filter exports to date (ISO string)
+
+### Path Parameters (GET /exports/download/:filename)
+
+- `filename`: The name of the file to download (e.g., `tasks-export-2025-07-13T12-00-00-000Z-abcdef.csv`)
 
 ### Task Schema
 
