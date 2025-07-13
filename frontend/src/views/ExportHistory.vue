@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/valid-v-slot -->
 <template>
   <div class="export-history">
     <div class="d-flex justify-space-between align-center mb-6">
@@ -156,7 +157,12 @@
         </template>
 
         <template #item.queryParameters="{ item }">
-          <div v-if="item.queryParameters && Object.keys(item.queryParameters).length > 0">
+          <div
+            v-if="
+              item.queryParameters &&
+              Object.keys(item.queryParameters).length > 0
+            "
+          >
             <v-tooltip>
               <template #activator="{ props }">
                 <v-chip
@@ -169,8 +175,14 @@
                 </v-chip>
               </template>
               <div class="pa-2">
-                <div class="text-caption font-weight-bold mb-2">Query Parameters:</div>
-                <div v-for="(value, key) in item.queryParameters" :key="key" class="text-caption">
+                <div class="text-caption font-weight-bold mb-2">
+                  Query Parameters:
+                </div>
+                <div
+                  v-for="(value, key) in item.queryParameters"
+                  :key="key"
+                  class="text-caption"
+                >
                   <strong>{{ key }}:</strong> {{ formatQueryValue(value) }}
                 </div>
               </div>
@@ -180,9 +192,11 @@
         </template>
 
         <template #item.totalRecords="{ item }">
-          <span v-if="typeof item.totalRecords === 'number'" class="font-weight-medium">{{
-            item.totalRecords.toLocaleString()
-          }}</span>
+          <span
+            v-if="typeof item.totalRecords === 'number'"
+            class="font-weight-medium"
+            >{{ item.totalRecords.toLocaleString() }}</span
+          >
           <span v-else class="text-medium-emphasis">-</span>
         </template>
 
@@ -243,7 +257,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import apiClient from '../api/client.js'
 import { downloadExportFile } from '../utils/download.js'
 
@@ -268,7 +282,6 @@ const statusOptions = [
   { title: 'Completed', value: 'completed' },
   { title: 'Failed', value: 'failed' }
 ]
-
 
 const sortOrderOptions = [
   { title: 'Newest First', value: 'desc' },
@@ -309,7 +322,7 @@ const stopLimitWatch = watch(
 
 async function fetchExportHistory() {
   if (!isMounted.value) return
-  
+
   loading.value = true
   try {
     const params = {
@@ -325,7 +338,7 @@ async function fetchExportHistory() {
     }
 
     const response = await apiClient.getExportHistory(params)
-    
+
     // Only update if component is still mounted
     if (isMounted.value) {
       exports.value = response.data.exports
@@ -429,20 +442,25 @@ function formatTime(dateString) {
 }
 
 function formatQuerySummary(queryParams) {
-  const keys = Object.keys(queryParams).filter(key => queryParams[key] !== undefined && queryParams[key] !== null && queryParams[key] !== '');
-  if (keys.length === 0) return 'All data';
-  if (keys.length === 1) return keys[0];
-  return `${keys.length} filters`;
+  const keys = Object.keys(queryParams).filter(
+    (key) =>
+      queryParams[key] !== undefined &&
+      queryParams[key] !== null &&
+      queryParams[key] !== ''
+  )
+  if (keys.length === 0) return 'All data'
+  if (keys.length === 1) return keys[0]
+  return `${keys.length} filters`
 }
 
 function formatQueryValue(value) {
   if (Array.isArray(value)) {
-    return value.join(', ');
+    return value.join(', ')
   }
   if (typeof value === 'object' && value !== null) {
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   }
-  return String(value);
+  return String(value)
 }
 
 async function downloadExport(filename) {
@@ -453,7 +471,7 @@ async function downloadExport(filename) {
   } catch (error) {
     console.error('Download failed:', error)
     // Could add a notification system here if available
-    alert(`Download failed: ${error.message}`)
+    console.error(`Download failed: ${error.message}`)
   } finally {
     downloadingFiles.value.delete(filename)
   }

@@ -14,11 +14,11 @@ export function downloadFile(blob, filename) {
   link.href = url
   link.download = filename
   link.style.display = 'none'
-  
+
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
-  
+
   // Clean up the object URL to free memory
   window.URL.revokeObjectURL(url)
 }
@@ -33,7 +33,8 @@ export function downloadFile(blob, filename) {
  */
 export async function downloadExportFile(filename, apiDownloadMethod) {
   try {
-    const { blob, filename: downloadFilename } = await apiDownloadMethod(filename)
+    const { blob, filename: downloadFilename } =
+      await apiDownloadMethod(filename)
     downloadFile(blob, downloadFilename)
   } catch (error) {
     console.error('Failed to download export file:', error)

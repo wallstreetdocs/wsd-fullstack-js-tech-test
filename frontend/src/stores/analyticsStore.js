@@ -181,46 +181,49 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     })
 
     socket.on('export-update', async (data) => {
-      let message = '';
-      let type = 'info';
+      let message = ''
+      let type = 'info'
 
       switch (data.status) {
         case 'started':
-          message = `Export started for ${data.export.filename}`;
-          break;
+          message = `Export started for ${data.export.filename}`
+          break
         case 'completed':
-          message = `Export completed for ${data.export.filename}`;
-          type = 'success';
-          
+          message = `Export completed for ${data.export.filename}`
+          type = 'success'
+
           // Automatically download the completed export
           try {
-            await downloadExportFile(data.export.filename, apiClient.downloadExport.bind(apiClient));
+            await downloadExportFile(
+              data.export.filename,
+              apiClient.downloadExport.bind(apiClient)
+            )
             addNotification({
               message: `✅ ${data.export.filename} downloaded successfully`,
               type: 'success',
               timestamp: new Date().toISOString()
-            });
+            })
           } catch (error) {
-            console.error('Auto-download failed:', error);
+            console.error('Auto-download failed:', error)
             addNotification({
               message: `❌ Download failed for ${data.export.filename}. ${error.message}`,
               type: 'error',
               timestamp: new Date().toISOString()
-            });
+            })
           }
-          break;
+          break
         case 'failed':
-          message = `Export failed for ${data.export.filename}`;
-          type = 'error';
-          break;
+          message = `Export failed for ${data.export.filename}`
+          type = 'error'
+          break
       }
 
       addNotification({
         message,
         type,
         timestamp: data.timestamp
-      });
-    });
+      })
+    })
   }
 
   /**

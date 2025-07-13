@@ -807,23 +807,6 @@ function formatPriority(priority) {
 function formatDate(date) {
   return new Date(date).toLocaleDateString()
 }
-
-/**
- * Downloads file from blob with proper filename
- * @param {Blob} blob - File blob
- * @param {string} filename - Suggested filename
- */
-function downloadFile(blob, filename) {
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
-}
-
 /**
  * Exports tasks with current filters in specified format
  * @async
@@ -833,11 +816,13 @@ async function exportTasks(format) {
   exportLoading.value = true
 
   try {
-    const result = await taskStore.exportTasks(format)
-    
+    await taskStore.exportTasks(format)
+
     // Show success message that job was created
-    console.log(`Export job created successfully. You will be notified when the ${format.toUpperCase()} export is ready.`)
-    
+    console.log(
+      `Export job created successfully. You will be notified when the ${format.toUpperCase()} export is ready.`
+    )
+
     // The download will happen automatically when the job completes via real-time notifications
   } catch (error) {
     console.error('Export failed:', error)

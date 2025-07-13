@@ -68,7 +68,7 @@
       </v-col>
     </v-row>
 
-    <v-row class="mt-4" v-if="!analyticsStore.loading">
+    <v-row v-if="!analyticsStore.loading" class="mt-4">
       <v-col cols="12" md="3">
         <metric-card
           title="Total Exports"
@@ -96,7 +96,11 @@
       <v-col cols="12" md="3">
         <metric-card
           title="Last Export"
-          :value="formatLastExportDate(analyticsStore.analytics.lastExportDate ?? null)"
+          :value="
+            formatLastExportDate(
+              analyticsStore.analytics.lastExportDate ?? null
+            )
+          "
           icon="mdi-calendar-clock"
           color="blue-grey"
         />

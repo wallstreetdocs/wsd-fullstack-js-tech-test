@@ -233,12 +233,12 @@ class ApiClient {
    */
   async downloadExport(filename) {
     const url = `${this.baseURL}/exports/download/${encodeURIComponent(filename)}`
-    
+
     try {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'Accept': 'text/csv, application/json'
+          Accept: 'text/csv, application/json'
         }
       })
 
@@ -250,7 +250,8 @@ class ApiClient {
       }
 
       const blob = await response.blob()
-      const downloadFilename = this.getFilenameFromResponse(response) || filename
+      const downloadFilename =
+        this.getFilenameFromResponse(response) || filename
 
       return { blob, filename: downloadFilename }
     } catch (error) {
