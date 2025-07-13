@@ -1,19 +1,30 @@
 <!--
 /**
- * @fileoverview Tasks view page - wrapper for TaskList component
+ * @fileoverview Tasks view with advanced query builder and task management
  * @component Tasks
- * @description Simple view component that renders the TaskList component
+ * @description Main tasks page with comprehensive filtering, search, and CRUD operations
  */
 -->
 
 <template>
-  <task-list />
+  <div class="tasks-view">
+    <v-container fluid>
+      <v-row>
+        <v-col cols="12">
+          <task-list />
+        </v-col>
+      </v-row>
+    </v-container>
+  </div>
 </template>
 
 <script setup>
-/**
- * @module Tasks
- * @description Tasks view wrapper component
- */
 import TaskList from '../components/TaskList.vue'
 </script>
+
+<style scoped>
+.tasks-view {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+</style>

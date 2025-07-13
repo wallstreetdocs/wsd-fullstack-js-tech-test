@@ -14,12 +14,57 @@
     <div class="d-flex align-center mb-4">
       <h2 class="page-title">Tasks</h2>
       <v-spacer></v-spacer>
+      <v-btn variant="outlined" @click="showExportDialog = true" class="mr-2">
+        <v-icon left>mdi-download</v-icon>
+        Export
+      </v-btn>
+      <v-btn variant="text" :to="'/exports'" class="mr-2">
+        <v-icon left>mdi-history</v-icon>
+        Export History
+      </v-btn>
       <v-btn color="primary" @click="showCreateDialog = true">
         <v-icon left>mdi-plus</v-icon>
         New Task
       </v-btn>
     </div>
 
+    <!-- Advanced Query Builder -->
+    <task-query-builder
+      v-model="advancedQuery"
+      @query-updated="handleQueryUpdate"
+      @search-executed="handleSearchExecute"
+    />
+
+    <!-- Search Bar -->
+    <v-card class="mb-4">
+      <v-card-text>
+        <v-row>
+          <v-col cols="12" md="8">
+            <v-text-field
+              v-model="searchQuery"
+              label="Search tasks..."
+              placeholder="Enter search terms for title and description"
+              prepend-inner-icon="mdi-magnify"
+              clearable
+              @keyup.enter="handleSearch"
+              @update:model-value="handleSearchInput"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="12" md="4" class="d-flex gap-2">
+            <v-btn
+              color="primary"
+              @click="handleSearch"
+              :loading="taskStore.loading"
+            >
+              Search
+            </v-btn>
+            <v-btn variant="outlined" @click="clearSearch"> Clear </v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
+    <!-- Basic Filters -->
     <v-card class="mb-4">
       <v-card-text>
         <v-row>
@@ -61,6 +106,41 @@
       </v-card-text>
     </v-card>
 
+    <!-- Query Mode Indicator -->
+    <v-alert
+      v-if="taskStore.queryMode !== 'basic'"
+      :type="taskStore.queryMode === 'search' ? 'info' : 'warning'"
+      variant="tonal"
+      class="mb-4"
+    >
+      <template #prepend>
+        <v-icon>
+          {{
+            taskStore.queryMode === 'search'
+              ? 'mdi-magnify'
+              : 'mdi-filter-variant'
+          }}
+        </v-icon>
+      </template>
+      <div class="d-flex align-center justify-space-between">
+        <span>
+          {{
+            taskStore.queryMode === 'search'
+              ? 'Search Results'
+              : 'Advanced Query Results'
+          }}
+          <span
+            v-if="taskStore.queryMode === 'search' && taskStore.searchQuery"
+          >
+            for "{{ taskStore.searchQuery }}"
+          </span>
+        </span>
+        <v-btn size="small" variant="text" @click="taskStore.resetToBasic">
+          Show All Tasks
+        </v-btn>
+      </div>
+    </v-alert>
+
     <div v-if="taskStore.loading" class="text-center py-8">
       <v-progress-circular indeterminate color="primary"></v-progress-circular>
     </div>
@@ -71,7 +151,21 @@
 
     <div v-else-if="taskStore.tasks.length === 0" class="text-center py-8">
       <v-icon size="64" color="grey-lighten-1">mdi-format-list-checks</v-icon>
-      <p class="text-grey mt-2">No tasks found</p>
+      <p class="text-grey mt-2">
+        {{
+          taskStore.queryMode === 'basic'
+            ? 'No tasks found'
+            : 'No tasks match your query'
+        }}
+      </p>
+      <v-btn
+        v-if="taskStore.queryMode !== 'basic'"
+        variant="outlined"
+        @click="taskStore.resetToBasic"
+        class="mt-2"
+      >
+        Clear Filters
+      </v-btn>
     </div>
 
     <div v-else>
@@ -108,6 +202,12 @@
                 </span>
                 <span v-if="task.completedAt" class="text-caption">
                   Completed {{ formatDate(task.completedAt) }}
+                </span>
+                <span v-if="task.estimatedTime" class="text-caption">
+                  Est: {{ task.estimatedTime }}min
+                </span>
+                <span v-if="task.actualTime" class="text-caption">
+                  Actual: {{ task.actualTime }}min
                 </span>
               </div>
             </div>
@@ -160,20 +260,40 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Export Dialog -->
+    <export-dialog
+      v-model="showExportDialog"
+      @export-created="handleExportCreated"
+    />
+
+    <!-- Export History -->
+    <v-dialog v-model="showExportHistory" max-width="800px">
+      <export-history />
+    </v-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useTaskStore } from '../stores/taskStore.js'
+import { useExportStore } from '../stores/exportStore.js'
 import TaskFormDialog from './TaskFormDialog.vue'
+import TaskQueryBuilder from './TaskQueryBuilder.vue'
+import ExportDialog from './ExportDialog.vue'
+import ExportHistory from './ExportHistory.vue'
 
 const taskStore = useTaskStore()
+const exportStore = useExportStore()
 
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
+const showExportDialog = ref(false)
+const showExportHistory = ref(false)
 const selectedTask = ref(null)
+const searchQuery = ref('')
+const advancedQuery = ref({})
 
 const filters = reactive({
   status: '',
@@ -198,17 +318,50 @@ const sortOptions = [
   { title: 'Created Date', value: 'createdAt' },
   { title: 'Updated Date', value: 'updatedAt' },
   { title: 'Title', value: 'title' },
+  { title: 'Status', value: 'status' },
   { title: 'Priority', value: 'priority' },
-  { title: 'Status', value: 'status' }
+  { title: 'Estimated Time', value: 'estimatedTime' },
+  { title: 'Actual Time', value: 'actualTime' }
 ]
 
 const orderOptions = [
-  { title: 'Newest First', value: 'desc' },
-  { title: 'Oldest First', value: 'asc' }
+  { title: 'Ascending', value: 'asc' },
+  { title: 'Descending', value: 'desc' }
 ]
 
+// Methods
 function updateFilters() {
   taskStore.updateFilters(filters)
+}
+
+function handleSearch() {
+  if (searchQuery.value.trim()) {
+    taskStore.searchTasks(searchQuery.value.trim())
+  }
+}
+
+function handleSearchInput() {
+  // Debounced search could be implemented here
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  taskStore.resetToBasic()
+}
+
+function handleQueryUpdate(query) {
+  // Store the current query in the task store for export functionality
+  taskStore.setCurrentQuery(query)
+}
+
+function handleSearchExecute(queryData) {
+  // Execute advanced query
+  if (queryData.filters && queryData.options) {
+    taskStore.queryTasks(queryData.filters, queryData.options)
+  } else {
+    // Backward compatibility for old format
+    taskStore.queryTasks(queryData)
+  }
 }
 
 function editTask(task) {
@@ -221,60 +374,98 @@ function deleteTask(task) {
   showDeleteDialog.value = true
 }
 
-async function handleSave() {
-  showCreateDialog.value = false
-  showEditDialog.value = false
-  selectedTask.value = null
-  await taskStore.fetchTasks()
-}
-
 async function confirmDelete() {
-  if (selectedTask.value) {
+  try {
     await taskStore.deleteTask(selectedTask.value._id)
     showDeleteDialog.value = false
     selectedTask.value = null
+  } catch (error) {
+    console.error('Error deleting task:', error)
+  }
+}
+
+async function handleSave(taskData) {
+  try {
+    if (selectedTask.value) {
+      await taskStore.updateTask(selectedTask.value._id, taskData)
+      showEditDialog.value = false
+      selectedTask.value = null
+    } else {
+      await taskStore.createTask(taskData)
+      showCreateDialog.value = false
+    }
+  } catch (error) {
+    console.error('Error saving task:', error)
   }
 }
 
 function getStatusColor(status) {
-  switch (status) {
-    case 'pending':
-      return 'warning'
-    case 'in-progress':
-      return 'info'
-    case 'completed':
-      return 'success'
-    default:
-      return 'grey'
+  const colors = {
+    pending: 'warning',
+    'in-progress': 'info',
+    completed: 'success'
   }
-}
-
-function getPriorityColor(priority) {
-  switch (priority) {
-    case 'low':
-      return 'success'
-    case 'medium':
-      return 'warning'
-    case 'high':
-      return 'error'
-    default:
-      return 'grey'
-  }
+  return colors[status] || 'grey'
 }
 
 function formatStatus(status) {
   return status.replace('-', ' ').replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
+function getPriorityColor(priority) {
+  const colors = {
+    low: 'success',
+    medium: 'warning',
+    high: 'error'
+  }
+  return colors[priority] || 'grey'
+}
+
 function formatPriority(priority) {
   return priority.charAt(0).toUpperCase() + priority.slice(1)
 }
 
-function formatDate(date) {
-  return new Date(date).toLocaleDateString()
+function formatDate(dateString) {
+  return new Date(dateString).toLocaleDateString()
+}
+
+function handleExportCreated(exportRecord) {
+  console.log('Export created:', exportRecord)
+  // Could show a notification here
 }
 
 onMounted(() => {
   taskStore.fetchTasks()
+  taskStore.initializeSocketListeners()
+  exportStore.initializeSocketListeners()
 })
 </script>
+
+<style scoped>
+.task-item {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.task-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.task-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.task-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+</style>

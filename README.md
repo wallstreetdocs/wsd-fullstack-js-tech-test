@@ -7,6 +7,7 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 ## 🚀 Features
 
 ### Backend Features
+
 - ✅ **RESTful API** with Express.js for task CRUD operations
 - ✅ **MongoDB Integration** with Mongoose for data persistence
 - ✅ **Redis Caching** for individual task lookups (GET /tasks/:id)
@@ -17,6 +18,7 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 - ✅ **Code Coverage** with Node.js test runner and comprehensive reporting
 
 ### Frontend Features
+
 - ✅ **Vue.js 3 SPA** with Composition API
 - ✅ **Vuetify 3** for modern UI components
 - ✅ **Pinia** for state management
@@ -28,6 +30,7 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 - ✅ **Code Coverage** with Vitest and detailed reporting
 
 ### Real-time Features
+
 - 📊 **Live Analytics Updates** - Task metrics update in real-time
 - 🔔 **Smart Notifications** - Alerts when completion rate drops below 50%
 - ⚡ **Instant Task Updates** - Changes sync across all connected clients
@@ -40,16 +43,16 @@ A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and 
 │   Vue.js 3 SPA  │────│   Express API   │────│    MongoDB      │
 │   (Frontend)    │    │   (Backend)     │    │   (Database)    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       
+         │                       │
          │                       │              ┌─────────────────┐
          │                       └──────────────│     Redis       │
          │                                      │   (Caching)     │
          │                                      └─────────────────┘
-         │                                               
-         │              ┌─────────────────┐              
-         └──────────────│   Socket.IO     │              
-                        │  (Real-time)    │              
-                        └─────────────────┘              
+         │
+         │              ┌─────────────────┐
+         └──────────────│   Socket.IO     │
+                        │  (Real-time)    │
+                        └─────────────────┘
 ```
 
 ## 📋 Prerequisites
@@ -74,6 +77,7 @@ docker-compose up -d
 ```
 
 This starts:
+
 - **MongoDB** on port 27018 (no authentication)
 - **Redis** on port 6380 (no authentication)
 
@@ -124,6 +128,7 @@ npm run seed:large    # Generate 100 sample tasks
 ```
 
 The seeding script creates:
+
 - **Diverse task categories**: Development, design, planning, maintenance
 - **Realistic distributions**: 40% completed, 30% in-progress, 30% pending
 - **Priority weighting**: 20% high, 50% medium, 30% low
@@ -153,45 +158,49 @@ Both test suites include comprehensive coverage reporting.
 ## 📊 API Reference
 
 ### Base URL
+
 ```
 http://localhost:3001/api
 ```
 
 ### Authentication
+
 No authentication required for this technical assessment.
 
 ### Endpoints
 
 #### Tasks
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tasks` | List tasks with pagination and filtering |
-| GET | `/tasks/:id` | Get single task (cached with Redis) |
-| POST | `/tasks` | Create new task |
-| PUT | `/tasks/:id` | Update task |
-| DELETE | `/tasks/:id` | Delete task |
+| Method | Endpoint     | Description                              |
+| ------ | ------------ | ---------------------------------------- |
+| GET    | `/tasks`     | List tasks with pagination and filtering |
+| GET    | `/tasks/:id` | Get single task (cached with Redis)      |
+| POST   | `/tasks`     | Create new task                          |
+| PUT    | `/tasks/:id` | Update task                              |
+| DELETE | `/tasks/:id` | Delete task                              |
 
 #### Analytics
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/analytics` | Get task analytics and metrics |
+| Method | Endpoint     | Description                    |
+| ------ | ------------ | ------------------------------ |
+| GET    | `/analytics` | Get task analytics and metrics |
 
 #### Health
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | API health check |
+| Method | Endpoint  | Description      |
+| ------ | --------- | ---------------- |
+| GET    | `/health` | API health check |
 
 ### Request/Response Examples
 
 #### GET /tasks
+
 ```bash
 curl "http://localhost:3001/api/tasks?page=1&limit=5&status=completed"
 ```
 
 #### POST /tasks
+
 ```bash
 curl -X POST http://localhost:3001/api/tasks \
   -H "Content-Type: application/json" \
@@ -204,6 +213,7 @@ curl -X POST http://localhost:3001/api/tasks \
 ```
 
 #### PUT /tasks/:id
+
 ```bash
 curl -X PUT http://localhost:3001/api/tasks/123456 \
   -H "Content-Type: application/json" \
@@ -241,10 +251,12 @@ curl -X PUT http://localhost:3001/api/tasks/123456 \
 ### Socket.IO Events
 
 #### Client → Server
+
 - `join-analytics`: Join analytics room for updates
 - `request-analytics`: Request current analytics data
 
 #### Server → Client
+
 - `analytics-update`: Real-time analytics data
 - `task-update`: Task CRUD notifications
 - `notification`: System notifications
@@ -266,11 +278,13 @@ The dashboard tracks:
 ## 🎨 UI Components
 
 ### Dashboard Views
+
 - **Dashboard**: Overview with metrics and charts
 - **Tasks**: Full task management with CRUD operations
 - **Analytics**: Detailed analytics and reporting
 
 ### Key Components
+
 - **MetricCard**: Display key performance indicators
 - **TaskList**: Paginated task listing with filters
 - **TaskFormDialog**: Create/edit task modal
@@ -284,6 +298,7 @@ The dashboard tracks:
 ### Environment Variables
 
 #### Backend (.env)
+
 ```env
 PORT=3001
 NODE_ENV=development
@@ -295,6 +310,7 @@ CORS_ORIGIN=http://localhost:5173
 ```
 
 #### Frontend (.env)
+
 ```env
 VITE_API_URL=http://localhost:3001
 ```
@@ -302,11 +318,13 @@ VITE_API_URL=http://localhost:3001
 ## 🔧 Code Quality
 
 ### ESLint Configuration
+
 - **Backend**: Google JavaScript Style Guide with ES modules
 - **Frontend**: Vue.js style guide with Prettier integration
 - **Rules**: Enforce semicolons, single quotes, proper indentation
 
 ### Prettier Configuration
+
 - Consistent code formatting
 - Aligned with ESLint rules
 - Automatic formatting on save
@@ -327,6 +345,7 @@ npm run preview
 ```
 
 ### Docker Support
+
 The `docker-compose.yml` includes MongoDB and Redis services. For full containerization, add Dockerfile for the application services.
 
 ## 📝 Technical Decisions
@@ -409,6 +428,7 @@ docker-compose logs redis
 ## 📚 Learning Resources
 
 This project demonstrates:
+
 - Modern JavaScript (ES2024)
 - Vue.js 3 Composition API
 - Node.js backend development

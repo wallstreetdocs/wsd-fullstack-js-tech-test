@@ -38,7 +38,9 @@ class SocketHandlers {
           socket.emit('analytics-update', metrics);
         } catch (error) {
           console.error('Error sending analytics update:', error);
-          socket.emit('analytics-error', { message: 'Failed to get analytics data' });
+          socket.emit('analytics-error', {
+            message: 'Failed to get analytics data'
+          });
         }
       });
 
@@ -88,6 +90,31 @@ class SocketHandlers {
       type,
       timestamp: new Date().toISOString()
     });
+  }
+
+  /**
+   * Broadcasts export progress updates to all connected clients
+   * @param {string} exportId - Export ID
+   * @param {string} status - Export status (processing, completed, failed)
+   * @param {string} message - Progress message
+   * @param {number} [percentage] - Progress percentage (0-100)
+   */
+  async broadcastExportProgress(exportId, status, message, percentage = null) {
+    const progressData = {
+      exportId,
+      status,
+      message,
+      percentage,
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log('📡 Broadcasting export progress:', progressData);
+    console.log('📡 Connected clients:', this.io.engine.clientsCount);
+    
+    this.io.emit('export-progress', progressData);
+    
+    // Small delay to ensure event is sent before next one
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   /**
