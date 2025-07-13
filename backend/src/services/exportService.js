@@ -40,7 +40,7 @@ const EXPORT_FORMATS = {
  * @param {Object} [requestInfo={}] - Request information for tracking
  * @returns {Promise<Object>} Export result with file path and metadata
  */
-export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}) => {
+export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}, socketHandlers = null) => {
   const startTime = Date.now();
   let exportRecord = null;
 
@@ -73,6 +73,11 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
       userAgent: requestInfo.userAgent
     });
 
+    // Notify clients that export has started
+    if (socketHandlers) {
+      socketHandlers.broadcastExportUpdate('started', exportRecord.toObject());
+    }
+
     // Stream tasks directly to file
     const taskCount = await formatConfig.streamer(query, sort, filePath);
 
@@ -85,6 +90,11 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
 
     // Mark export as completed
     await exportRecord.markCompleted(fileSizeBytes, executionTime);
+
+    // Notify clients that export has completed
+    if (socketHandlers) {
+      socketHandlers.broadcastExportUpdate('completed', exportRecord.toObject());
+    }
 
     return {
       success: true,
@@ -106,6 +116,10 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
     // Mark export as failed if we have a record
     if (exportRecord) {
       await exportRecord.markFailed(error.message, executionTime);
+      // Notify clients that export has failed
+      if (socketHandlers) {
+        socketHandlers.broadcastExportUpdate('failed', exportRecord.toObject());
+      }
     }
 
     throw error;

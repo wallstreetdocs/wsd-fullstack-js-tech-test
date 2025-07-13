@@ -91,6 +91,19 @@ class SocketHandlers {
   }
 
   /**
+   * Broadcasts export status updates to all connected clients
+   * @param {string} status - Export status (started, completed, failed)
+   * @param {Object} exportData - Export data
+   */
+  broadcastExportUpdate(status, exportData) {
+    this.io.emit('export-update', {
+      status,
+      export: exportData,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
    * Checks metrics against thresholds and sends notifications if exceeded
    * @async
    * @param {Object} metrics - Analytics metrics object

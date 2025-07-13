@@ -174,6 +174,31 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       // Immediately request fresh analytics when a task is updated
       socket.emit('request-analytics')
     })
+
+    socket.on('export-update', (data) => {
+      let message = '';
+      let type = 'info';
+
+      switch (data.status) {
+        case 'started':
+          message = `Export started for ${data.export.filename}`;
+          break;
+        case 'completed':
+          message = `Export completed for ${data.export.filename}`;
+          type = 'success';
+          break;
+        case 'failed':
+          message = `Export failed for ${data.export.filename}`;
+          type = 'error';
+          break;
+      }
+
+      addNotification({
+        message,
+        type,
+        timestamp: data.timestamp
+      });
+    });
   }
 
   /**
@@ -187,6 +212,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
     socket.off('analytics-error')
     socket.off('notification')
     socket.off('task-update')
+    socket.off('export-update')
   }
 
   /**

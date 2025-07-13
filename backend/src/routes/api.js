@@ -69,7 +69,7 @@ router.post('/export/tasks', async (req, res, next) => {
     };
 
     // Export tasks using the export service (creates temporary file)
-    const exportResult = await exportTasks(filters, format, requestInfo);
+    const exportResult = await exportTasks(filters, format, requestInfo, socketHandlers);
 
     // Set appropriate headers for file download
     res.setHeader('Content-Type', exportResult.mimeType);
