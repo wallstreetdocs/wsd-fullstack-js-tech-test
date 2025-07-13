@@ -25,6 +25,14 @@
         Offline
       </v-chip>
       <v-spacer></v-spacer>
+      <v-btn variant="outlined" @click="showExportDialog = true" class="mr-2">
+        <v-icon left>mdi-download</v-icon>
+        Export Data
+      </v-btn>
+      <v-btn variant="text" :to="'/exports'" class="mr-2">
+        <v-icon left>mdi-history</v-icon>
+        Export History
+      </v-btn>
       <small v-if="analyticsStore.analytics.lastUpdated" class="text-grey">
         Last updated:
         {{ formatLastUpdated(analyticsStore.analytics.lastUpdated) }}
@@ -176,17 +184,26 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Export Dialog -->
+    <export-dialog
+      v-model="showExportDialog"
+      @export-created="handleExportCreated"
+    />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { useAnalyticsStore } from '../stores/analyticsStore.js'
 import MetricCard from '../components/MetricCard.vue'
 import TaskStatusChart from '../components/TaskStatusChart.vue'
 import TaskPriorityChart from '../components/TaskPriorityChart.vue'
 import RecentActivity from '../components/RecentActivity.vue'
+import ExportDialog from '../components/ExportDialog.vue'
 
 const analyticsStore = useAnalyticsStore()
+const showExportDialog = ref(false)
 
 function formatLastUpdated(timestamp) {
   const now = new Date()
@@ -219,6 +236,11 @@ function formatCompletionTime(hours) {
     const days = Math.round((hours / 24) * 10) / 10
     return `${days}d`
   }
+}
+
+function handleExportCreated(exportRecord) {
+  console.log('Export created:', exportRecord)
+  // Could show a notification here
 }
 </script>
 

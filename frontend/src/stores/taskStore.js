@@ -31,6 +31,11 @@ export const useTaskStore = defineStore('tasks', () => {
     sortOrder: 'desc'
   })
 
+  // Advanced query state
+  const advancedQuery = ref({})
+  const searchQuery = ref('')
+  const queryMode = ref('basic') // 'basic', 'search', 'advanced'
+
   const pendingTasks = computed(() =>
     tasks.value.filter((task) => task.status === 'pending')
   )
@@ -89,6 +94,59 @@ export const useTaskStore = defineStore('tasks', () => {
     } catch (err) {
       error.value = err.message
       console.error('Error fetching tasks:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * Advanced search with full-text search capabilities
+   * @async
+   * @function searchTasks
+   * @param {string} query - Search query
+   * @param {Object} [filters={}] - Additional filters
+   * @param {Object} [options={}] - Search options
+   * @returns {Promise<void>}
+   */
+  async function searchTasks(query, filters = {}, options = {}) {
+    loading.value = true
+    error.value = null
+    queryMode.value = 'search'
+    searchQuery.value = query
+
+    try {
+      const response = await apiClient.searchTasks(query, filters, options)
+      tasks.value = response.data.tasks
+      pagination.value = response.data.pagination
+    } catch (err) {
+      error.value = err.message
+      console.error('Error searching tasks:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * Advanced query builder for complex queries
+   * @async
+   * @function queryTasks
+   * @param {Object} filters - Query filters
+   * @param {Object} [options={}] - Query options
+   * @returns {Promise<void>}
+   */
+  async function queryTasks(filters = {}, options = {}) {
+    loading.value = true
+    error.value = null
+    queryMode.value = 'advanced'
+    advancedQuery.value = { filters, options }
+
+    try {
+      const response = await apiClient.queryTasks(filters, options)
+      tasks.value = response.data.tasks
+      pagination.value = response.data.pagination
+    } catch (err) {
+      error.value = err.message
+      console.error('Error querying tasks:', err)
     } finally {
       loading.value = false
     }
@@ -203,61 +261,118 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
-   * Updates task filters and refetches data
+   * Fetches task statistics with optional filtering
+   * @async
+   * @function fetchTaskStats
+   * @param {Object} [filters={}] - Filter parameters for stats
+   * @returns {Promise<Object>} Task statistics
+   */
+  async function fetchTaskStats(filters = {}) {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await apiClient.getTaskStats(filters)
+      return response.data
+    } catch (err) {
+      error.value = err.message
+      console.error('Error fetching task stats:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * Updates filters and refetches data
    * @function updateFilters
    * @param {Object} newFilters - New filter values
    */
   function updateFilters(newFilters) {
-    filters.value = { ...filters.value, ...newFilters }
-    pagination.value.page = 1
+    Object.assign(filters.value, newFilters)
+    pagination.value.page = 1 // Reset to first page
+    queryMode.value = 'basic'
     fetchTasks()
   }
 
   /**
-   * Sets pagination page and refetches data
+   * Sets the current page and refetches data
    * @function setPage
    * @param {number} page - Page number
    */
   function setPage(page) {
     pagination.value.page = page
+    if (queryMode.value === 'basic') {
+      fetchTasks()
+    } else if (queryMode.value === 'search') {
+      searchTasks(searchQuery.value)
+    } else if (queryMode.value === 'advanced') {
+      queryTasks(advancedQuery.value.filters, advancedQuery.value.options)
+    }
+  }
+
+  /**
+   * Sets the current query for export functionality without executing it
+   * @function setCurrentQuery
+   * @param {Object} query - Query object from Advanced Query Builder
+   */
+  function setCurrentQuery(query) {
+    if (query && Object.keys(query).length > 0) {
+      queryMode.value = 'advanced'
+      advancedQuery.value = { filters: query, options: {} }
+    }
+  }
+
+  /**
+   * Resets to basic mode and fetches all tasks
+   * @function resetToBasic
+   */
+  function resetToBasic() {
+    queryMode.value = 'basic'
+    searchQuery.value = ''
+    advancedQuery.value = {}
     fetchTasks()
   }
 
   /**
-   * Handles real-time task updates from Socket.IO
+   * Handles real-time task updates from WebSocket
    * @function handleTaskUpdate
-   * @param {Object} data - Task update data
+   * @param {Object} data - Update data
    */
   function handleTaskUpdate(data) {
     const { action, task } = data
 
     switch (action) {
       case 'created':
-        if (!tasks.value.find((t) => t._id === task._id)) {
-          tasks.value.unshift(task)
-          pagination.value.total++
+        // Add new task to the beginning of the list
+        tasks.value.unshift(task)
+        pagination.value.total++
+        break
+
+      case 'updated':
+        // Update existing task
+        const updateIndex = tasks.value.findIndex((t) => t._id === task._id)
+        if (updateIndex !== -1) {
+          tasks.value[updateIndex] = task
         }
         break
-      case 'updated': {
-        const index = tasks.value.findIndex((t) => t._id === task._id)
-        if (index !== -1) {
-          tasks.value[index] = task
-        }
-        break
-      }
-      case 'deleted': {
+
+      case 'deleted':
+        // Remove deleted task
         const deleteIndex = tasks.value.findIndex((t) => t._id === task._id)
         if (deleteIndex !== -1) {
           tasks.value.splice(deleteIndex, 1)
           pagination.value.total--
         }
         break
-      }
+
+      default:
+        console.warn('Unknown task update action:', action)
     }
   }
 
   /**
-   * Sets up Socket.IO event listeners
+   * Initializes WebSocket listeners for real-time updates
    * @function initializeSocketListeners
    */
   function initializeSocketListeners() {
@@ -265,7 +380,7 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
-   * Removes Socket.IO event listeners
+   * Cleans up WebSocket listeners
    * @function cleanup
    */
   function cleanup() {
@@ -273,24 +388,37 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   return {
+    // State
     tasks,
     loading,
     error,
     pagination,
     filters,
+    advancedQuery,
+    searchQuery,
+    queryMode,
+
+    // Computed
     pendingTasks,
     inProgressTasks,
     completedTasks,
     highPriorityTasks,
     tasksByStatus,
     tasksByPriority,
+
+    // Actions
     fetchTasks,
+    searchTasks,
+    queryTasks,
     getTask,
     createTask,
     updateTask,
     deleteTask,
+    fetchTaskStats,
     updateFilters,
     setPage,
+    setCurrentQuery,
+    resetToBasic,
     handleTaskUpdate,
     initializeSocketListeners,
     cleanup
