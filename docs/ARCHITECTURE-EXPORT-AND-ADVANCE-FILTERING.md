@@ -235,3 +235,54 @@ Our approach prioritizes integration with the existing codebase, adherence to es
 - **More Export Formats:** Support additional formats like PDF or Excel.
 - **Webhooks/Notifications:** Configure webhooks or email notifications upon export completion.
 - **Robust Job Queue:** Migrate from simple in-memory queue to a more robust, persistent queue system (e.g., Redis Queue, RabbitMQ) for better fault tolerance and scalability in production environments.
+
+## 5. AI Tool Usage in Development Process
+
+This feature was developed using AI-assisted programming tools, demonstrating effective human-AI collaboration in software development.
+
+### 5.1 AI Tools Utilized
+
+**Primary Tool: Claude Code (Anthropic)**
+- **Usage Pattern:** Interactive development sessions with real-time code generation, debugging, and refactoring
+- **Key Strengths:** 
+  - Excellent at understanding existing codebase patterns and maintaining consistency
+  - Strong architectural guidance and best practices recommendations
+  - Effective debugging and error resolution
+  - Comprehensive code review and optimization suggestions
+
+**Secondary Tool: Gemini CLI (Google)**
+- **Usage Pattern:** Quick queries for specific technical questions and alternative approaches
+- **Key Strengths:**
+  - Fast responses for syntax questions and API documentation
+  - Good for exploring different implementation strategies
+  - Helpful for validating technical decisions
+
+**Additional Tool: ChatGPT (OpenAI)**
+- **Usage Pattern:** Architecture and design decision validation, debugging complex issues
+- **Key Strengths:**
+  - Excellent for high-level architecture discussions and trade-off analysis
+  - Strong debugging capabilities for complex multi-component issues
+  - Good at providing alternative design patterns and architectural approaches
+  - Helpful for explaining complex technical concepts and validation of design decisions
+
+### 5.2 Human Oversight and Validation
+
+**Code Understanding:**
+- All AI-generated code was thoroughly reviewed and understood before integration
+- Custom modifications were made to fit specific business logic requirements
+- Performance implications were manually evaluated for production readiness
+
+### 5.3 AI Tool Effectiveness Assessment
+
+**High Effectiveness Areas:**
+- ✅ **Boilerplate Generation:** Rapid creation of service classes, API endpoints, and test structures
+- ✅ **Pattern Recognition:** Excellent at maintaining consistency with existing codebase patterns
+- ✅ **Debugging Support:** Quick identification and resolution of syntax and logic errors
+- ✅ **Documentation:** Generated comprehensive inline documentation and architecture docs
+
+**Areas Requiring Human Intervention:**
+- 🔄 **Business Logic Validation:** Required human review to ensure alignment with specific requirements
+- 🔄 **Performance Optimization:** AI suggestions needed validation against real-world usage patterns
+- 🔄 **Security Considerations:** Manual security review was essential for file handling and input validation
+- 🔄 **User Experience Design:** UI/UX decisions required human judgment for optimal user workflows
+
