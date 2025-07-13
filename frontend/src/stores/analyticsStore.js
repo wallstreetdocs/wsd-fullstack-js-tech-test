@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
+import { downloadExportFile } from '../utils/download.js'
 
 /**
  * Pinia store for analytics data, notifications, and real-time Socket.IO updates
@@ -175,7 +176,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
       socket.emit('request-analytics')
     })
 
-    socket.on('export-update', (data) => {
+    socket.on('export-update', async (data) => {
       let message = '';
       let type = 'info';
 
@@ -186,6 +187,23 @@ export const useAnalyticsStore = defineStore('analytics', () => {
         case 'completed':
           message = `Export completed for ${data.export.filename}`;
           type = 'success';
+          
+          // Automatically download the completed export
+          try {
+            await downloadExportFile(data.export.filename, apiClient.downloadExport.bind(apiClient));
+            addNotification({
+              message: `✅ ${data.export.filename} downloaded successfully`,
+              type: 'success',
+              timestamp: new Date().toISOString()
+            });
+          } catch (error) {
+            console.error('Auto-download failed:', error);
+            addNotification({
+              message: `❌ Download failed for ${data.export.filename}. ${error.message}`,
+              type: 'error',
+              timestamp: new Date().toISOString()
+            });
+          }
           break;
         case 'failed':
           message = `Export failed for ${data.export.filename}`;

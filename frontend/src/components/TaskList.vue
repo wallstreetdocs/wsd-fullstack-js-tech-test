@@ -834,17 +834,11 @@ async function exportTasks(format) {
 
   try {
     const result = await taskStore.exportTasks(format)
-    const { blob, filename, metadata } = result
-
-    // Show success message with export details
-    if (metadata && metadata.totalExported !== undefined) {
-      console.log(
-        `Successfully exported ${metadata.totalExported} tasks as ${format.toUpperCase()}`
-      )
-    }
-
-    // Download the file
-    downloadFile(blob, filename)
+    
+    // Show success message that job was created
+    console.log(`Export job created successfully. You will be notified when the ${format.toUpperCase()} export is ready.`)
+    
+    // The download will happen automatically when the job completes via real-time notifications
   } catch (error) {
     console.error('Export failed:', error)
     // You could show a snackbar or alert here

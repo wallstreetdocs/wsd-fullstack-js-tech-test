@@ -88,7 +88,7 @@ describe('ExportHistory Model Behavior Tests', () => {
     const exportRecord = new ExportHistory({
       filename: 'test.csv',
       format: 'csv',
-      status: 'processing',
+      status: 'invalid_status',
       totalRecords: 150
     });
 

@@ -1,5 +1,6 @@
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert';
+import SocketHandlers from '../../src/sockets/socketHandlers.js';
 
 describe('Socket Handlers Logic Tests', () => {
   let mockIo;
@@ -309,4 +310,58 @@ describe('Socket Handlers Logic Tests', () => {
       assert(Date.parse(timestamp1) <= Date.parse(timestamp2));
     }, 1);
   });
+});
+
+describe('SocketHandlers - broadcastExportUpdate', () => {
+  let mockIo, emittedEvents, socketHandlers;
+
+  beforeEach(() => {
+    emittedEvents = [];
+    mockIo = {
+      emit: (...args) => emittedEvents.push(args),
+      on: mock.fn(),
+      to: mock.fn(() => ({
+        emit: mock.fn()
+      }))
+    };
+    socketHandlers = new SocketHandlers(mockIo);
+  });
+
+  const cases = [
+    {
+      status: 'started',
+      exportData: { filename: 'test.csv', format: 'csv' }
+    },
+    {
+      status: 'completed',
+      exportData: { filename: 'completed.json', format: 'json', downloadUrl: '/exports/123' }
+    },
+    {
+      status: 'failed',
+      exportData: { filename: 'failed.csv', format: 'csv', error: 'Export failed' }
+    },
+    {
+      status: 'started',
+      exportData: {}
+    },
+    {
+      status: 'failed',
+      exportData: null
+    }
+  ];
+
+  for (const { status, exportData } of cases) {
+    test(`should emit export-update with status "${status}"`, () => {
+      socketHandlers.broadcastExportUpdate(status, exportData);
+
+      assert.strictEqual(emittedEvents.length, 1, 'emit should be called once');
+
+      const [eventName, payload] = emittedEvents[0];
+      assert.strictEqual(eventName, 'export-update');
+      assert.strictEqual(payload.status, status);
+      assert.deepStrictEqual(payload.export, exportData);
+      assert.ok(typeof payload.timestamp === 'string');
+      assert.doesNotThrow(() => new Date(payload.timestamp).toISOString());
+    });
+  }
 });

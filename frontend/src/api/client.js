@@ -177,11 +177,11 @@ class ApiClient {
   }
 
   /**
-   * Exports tasks with current filters as CSV or JSON
+   * Creates async export job with current filters
    * @async
    * @param {Object} filters - Current filter state
    * @param {string} [format='csv'] - Export format (csv, json)
-   * @returns {Promise<Blob>} File blob for download
+   * @returns {Promise<Object>} Job information
    */
   async exportTasks(filters = {}, format = 'csv') {
     const url = `${this.baseURL}/export/tasks`
@@ -206,21 +206,8 @@ class ApiClient {
         )
       }
 
-      // Get export metadata from headers
-      const metadata = JSON.parse(
-        response.headers.get('X-Export-Metadata') || '{}'
-      )
-
-      // Get the file blob
-      const blob = await response.blob()
-
-      // Return both blob and metadata
-      return {
-        blob,
-        metadata,
-        filename:
-          this.getFilenameFromResponse(response) || `tasks-export.${format}`
-      }
+      const data = await response.json()
+      return data
     } catch (error) {
       console.error('Export request failed:', error)
       throw error
@@ -235,6 +222,41 @@ class ApiClient {
    */
   async getExportHistory(params = {}) {
     return this.get('/exports', params)
+  }
+
+  /**
+   * Downloads an export file by filename
+   * @async
+   * @param {string} filename - Export filename to download
+   * @returns {Promise<{blob: Blob, filename: string}>} File blob and filename
+   * @throws {Error} Network or API errors
+   */
+  async downloadExport(filename) {
+    const url = `${this.baseURL}/exports/download/${encodeURIComponent(filename)}`
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/csv, application/json'
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(
+          errorData.message || `Download failed! status: ${response.status}`
+        )
+      }
+
+      const blob = await response.blob()
+      const downloadFilename = this.getFilenameFromResponse(response) || filename
+
+      return { blob, filename: downloadFilename }
+    } catch (error) {
+      console.error('Download request failed:', error)
+      throw error
+    }
   }
 
   /**

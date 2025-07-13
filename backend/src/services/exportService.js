@@ -38,9 +38,11 @@ const EXPORT_FORMATS = {
  * @param {Object} filters - Query filters
  * @param {string} [format='csv'] - Export format (csv, json)
  * @param {Object} [requestInfo={}] - Request information for tracking
+ * @param {Object} [socketHandlers=null] - Socket handlers for real-time updates
+ * @param {boolean} [skipHistory=false] - Skip creating history record
  * @returns {Promise<Object>} Export result with file path and metadata
  */
-export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}, socketHandlers = null) => {
+export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}, socketHandlers = null, skipHistory = false) => {
   const startTime = Date.now();
   let exportRecord = null;
 
@@ -63,19 +65,21 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
     // Get total count for history record
     const totalRecords = await Task.countDocuments(query);
 
-    // Create export history record
-    exportRecord = await ExportHistory.createExportRecord({
-      filename,
-      format,
-      totalRecords,
-      filters,
-      ipAddress: requestInfo.ipAddress,
-      userAgent: requestInfo.userAgent
-    });
+    // Create export history record only if not skipping
+    if (!skipHistory) {
+      exportRecord = await ExportHistory.createExportRecord({
+        filename,
+        format,
+        totalRecords,
+        filters,
+        ipAddress: requestInfo.ipAddress,
+        userAgent: requestInfo.userAgent
+      });
 
-    // Notify clients that export has started
-    if (socketHandlers) {
-      socketHandlers.broadcastExportUpdate('started', exportRecord.toObject());
+      // Notify clients that export has started
+      if (socketHandlers) {
+        socketHandlers.broadcastExportUpdate('started', exportRecord.toObject());
+      }
     }
 
     // Stream tasks directly to file
@@ -88,12 +92,14 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
     const endTime = Date.now();
     const executionTime = endTime - startTime;
 
-    // Mark export as completed
-    await exportRecord.markCompleted(fileSizeBytes, executionTime);
+    // Mark export as completed only if we have a record
+    if (exportRecord) {
+      await exportRecord.markCompleted(fileSizeBytes, executionTime);
 
-    // Notify clients that export has completed
-    if (socketHandlers) {
-      socketHandlers.broadcastExportUpdate('completed', exportRecord.toObject());
+      // Notify clients that export has completed
+      if (socketHandlers) {
+        socketHandlers.broadcastExportUpdate('completed', exportRecord.toObject());
+      }
     }
 
     return {
@@ -106,7 +112,7 @@ export const exportTasks = async (filters = {}, format = 'csv', requestInfo = {}
       appliedFilters: filters,
       generatedAt: new Date().toISOString(),
       processingTime: executionTime,
-      exportId: exportRecord._id,
+      exportId: exportRecord?._id || null,
       fileSizeBytes
     };
   } catch (error) {

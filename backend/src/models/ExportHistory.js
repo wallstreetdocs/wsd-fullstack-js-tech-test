@@ -24,7 +24,7 @@ const exportHistorySchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'completed', 'failed'],
+    enum: ['pending', 'processing', 'completed', 'failed'],
     default: 'pending',
     index: true
   },
@@ -97,6 +97,15 @@ exportHistorySchema.statics.createExportRecord = async function(data) {
     status: 'pending'
   });
   return await record.save();
+};
+
+/**
+ * Instance method to mark export as processing
+ * @returns {Promise<ExportHistory>} Updated export history record
+ */
+exportHistorySchema.methods.markProcessing = async function() {
+  this.status = 'processing';
+  return await this.save();
 };
 
 /**

@@ -197,6 +197,22 @@
           </div>
           <span v-else class="text-medium-emphasis">-</span>
         </template>
+
+        <template #item.actions="{ item }">
+          <v-btn
+            v-if="item.status === 'completed'"
+            :loading="downloadingFiles.has(item.filename)"
+            color="primary"
+            variant="outlined"
+            size="small"
+            icon="mdi-download"
+            @click="downloadExport(item.filename)"
+          >
+            <v-icon>mdi-download</v-icon>
+            <v-tooltip activator="parent" text="Download export file" />
+          </v-btn>
+          <span v-else class="text-medium-emphasis">-</span>
+        </template>
       </v-data-table-server>
     </v-card>
   </div>
@@ -205,10 +221,12 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import apiClient from '../api/client.js'
+import { downloadExportFile } from '../utils/download.js'
 
 const loading = ref(false)
 const exports = ref([])
 const isMounted = ref(false)
+const downloadingFiles = ref(new Set())
 const pagination = ref({
   page: 1,
   limit: 25,
@@ -240,7 +258,8 @@ const headers = [
   { title: 'Size', key: 'fileSizeBytes', sortable: false },
   { title: 'Duration', key: 'executionTimeMs', sortable: false },
   { title: 'Created', key: 'createdAt', sortable: false },
-  { title: 'Error', key: 'errorMessage', sortable: false, width: '80px' }
+  { title: 'Error', key: 'errorMessage', sortable: false, width: '80px' },
+  { title: 'Actions', key: 'actions', sortable: false, width: '100px' }
 ]
 
 const stats = computed(() => {
@@ -394,6 +413,20 @@ function formatDate(dateString) {
 
 function formatTime(dateString) {
   return new Date(dateString).toLocaleTimeString()
+}
+
+async function downloadExport(filename) {
+  try {
+    downloadingFiles.value.add(filename)
+    await downloadExportFile(filename, apiClient.downloadExport.bind(apiClient))
+    console.log(`Successfully downloaded: ${filename}`)
+  } catch (error) {
+    console.error('Download failed:', error)
+    // Could add a notification system here if available
+    alert(`Download failed: ${error.message}`)
+  } finally {
+    downloadingFiles.value.delete(filename)
+  }
 }
 
 onMounted(() => {

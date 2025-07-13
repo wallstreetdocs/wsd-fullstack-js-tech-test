@@ -4,12 +4,14 @@
  */
 
 import express from 'express';
-import { createReadStream } from 'fs';
+import path from 'path';
+import { promises as fs, createReadStream } from 'fs';
 import Task from '../models/Task.js';
 import AnalyticsService from '../services/analyticsService.js';
 import { redisClient } from '../config/redis.js';
 import { buildTaskQuery, buildSortQuery, sanitizeFilters } from '../services/queryBuilderService.js';
-import { exportTasks, getExportHistory } from '../services/exportService.js';
+import { getExportHistory } from '../services/exportService.js';
+import { createExportJob } from '../services/asyncExportService.js';
 
 const router = express.Router();
 
@@ -27,6 +29,8 @@ let socketHandlers = null;
  */
 export const setSocketHandlers = (handlers) => {
   socketHandlers = handlers;
+  // Also set globally for background workers
+  global.socketHandlers = handlers;
 };
 
 /**
@@ -68,41 +72,13 @@ router.post('/export/tasks', async (req, res, next) => {
       userAgent: req.get('User-Agent') || 'unknown'
     };
 
-    // Export tasks using the export service (creates temporary file)
-    const exportResult = await exportTasks(filters, format, requestInfo, socketHandlers);
+    // Create async export job
+    const jobInfo = await createExportJob(filters, format, requestInfo);
 
-    // Set appropriate headers for file download
-    res.setHeader('Content-Type', exportResult.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
-    res.setHeader('X-Export-Metadata', JSON.stringify({
-      taskCount: exportResult.taskCount,
-      format: exportResult.format,
-      generatedAt: exportResult.generatedAt,
-      processingTime: exportResult.processingTime,
-      exportId: exportResult.exportId,
-      fileSizeBytes: exportResult.fileSizeBytes
-    }));
-
-    // Stream the temporary file to HTTP response
-    const readStream = createReadStream(exportResult.filePath, { encoding: 'utf8' });
-
-    // Handle streaming errors
-    readStream.on('error', (error) => {
-      console.error('Error streaming export file:', error);
-      if (!res.headersSent) {
-        res.status(500).json({
-          success: false,
-          message: 'Error streaming export file'
-        });
-      }
-    });
-
-    // Pipe the file stream directly to the HTTP response
-    readStream.pipe(res);
-
-    // Clean up the temporary file after streaming completes
-    readStream.on('end', () => {
-      console.log(`Export completed: ${exportResult.filename} (${exportResult.taskCount} tasks)`);
+    res.json({
+      success: true,
+      data: jobInfo,
+      message: 'Export job created successfully. You will be notified when it completes.'
     });
 
   } catch (error) {
@@ -424,6 +400,70 @@ router.get('/health', (req, res) => {
     message: 'API is healthy',
     timestamp: new Date().toISOString()
   });
+});
+
+/**
+ * GET /exports/download/:filename - Download exported file
+ * @name DownloadExport
+ * @function
+ * @param {string} req.params.filename - Export filename to download
+ * @returns {File} The exported file with appropriate headers
+ */
+router.get('/exports/download/:filename', async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+
+    // Validate filename format and prevent directory traversal
+    const filenamePattern = /^tasks-export-.+\.(csv|json)$/;
+    if (!filenamePattern.test(filename)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid filename format'
+      });
+    }
+
+    const filePath = path.join(process.cwd(), 'exports', filename);
+
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        message: 'Export file not found'
+      });
+    }
+
+    // Get file stats for content length
+    const stats = await fs.stat(filePath);
+    const fileExtension = path.extname(filename).toLowerCase();
+
+    // Set appropriate headers
+    const contentType = fileExtension === '.json' ? 'application/json' : 'text/csv';
+    const disposition = `attachment; filename="${filename}"`;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', disposition);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Cache-Control', 'no-cache');
+
+    // Stream the file
+    const fileStream = createReadStream(filePath);
+    fileStream.pipe(res);
+
+    fileStream.on('error', (error) => {
+      console.error('Error streaming file:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Error downloading file'
+        });
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;
