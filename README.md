@@ -1,5 +1,7 @@
 # Tech Test: Task Analytics Dashboard
 
+📹 [Demo Video](https://drive.google.com/file/d/1In2HW5YR7sFwzfXwIwAKS1IsckC0eLX8/view?usp=sharing) | 🏗️ [System Architecture](https://whimsical.com/wsd-task-export-system-3PSg3pUP7PA4eP4aJr3bn7)
+
 > **Note**: This repository is used for internal technical candidate assessments and is not intended for production use.
 
 A real-time task analytics dashboard built with Vue.js 3, Node.js, MongoDB, and Redis. This application demonstrates full-stack development skills with WebSocket integration and caching strategies.
