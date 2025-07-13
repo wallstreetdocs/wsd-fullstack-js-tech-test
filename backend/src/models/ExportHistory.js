@@ -41,6 +41,13 @@ const exportHistorySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
+  queryParameters: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  cacheKey: {
+    type: String
+  },
   executionTimeMs: {
     type: Number,
     min: 0
@@ -74,6 +81,7 @@ exportHistorySchema.index({ createdAt: -1 });
 exportHistorySchema.index({ status: 1, createdAt: -1 });
 exportHistorySchema.index({ format: 1, createdAt: -1 });
 exportHistorySchema.index({ filename: 1 });
+exportHistorySchema.index({ cacheKey: 1 });
 
 // Virtual for file path
 exportHistorySchema.virtual('filePath').get(function() {
@@ -92,6 +100,8 @@ exportHistorySchema.statics.createExportRecord = async function(data) {
     format: data.format,
     totalRecords: data.totalRecords,
     filters: data.filters,
+    queryParameters: data.queryParameters || data.filters || {},
+    cacheKey: data.cacheKey || `legacy-${Date.now()}`,
     ipAddress: data.ipAddress,
     userAgent: data.userAgent,
     status: 'pending'

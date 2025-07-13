@@ -155,6 +155,30 @@
           </v-chip>
         </template>
 
+        <template #item.queryParameters="{ item }">
+          <div v-if="item.queryParameters && Object.keys(item.queryParameters).length > 0">
+            <v-tooltip>
+              <template #activator="{ props }">
+                <v-chip
+                  v-bind="props"
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                >
+                  {{ formatQuerySummary(item.queryParameters) }}
+                </v-chip>
+              </template>
+              <div class="pa-2">
+                <div class="text-caption font-weight-bold mb-2">Query Parameters:</div>
+                <div v-for="(value, key) in item.queryParameters" :key="key" class="text-caption">
+                  <strong>{{ key }}:</strong> {{ formatQueryValue(value) }}
+                </div>
+              </div>
+            </v-tooltip>
+          </div>
+          <span v-else class="text-medium-emphasis">All data</span>
+        </template>
+
         <template #item.totalRecords="{ item }">
           <span v-if="typeof item.totalRecords === 'number'" class="font-weight-medium">{{
             item.totalRecords.toLocaleString()
@@ -254,6 +278,7 @@ const sortOrderOptions = [
 const headers = [
   { title: 'Filename', key: 'filename', sortable: false },
   { title: 'Status', key: 'status', sortable: false },
+  { title: 'Query', key: 'queryParameters', sortable: false, width: '150px' },
   { title: 'Records', key: 'totalRecords', sortable: false },
   { title: 'Size', key: 'fileSizeBytes', sortable: false },
   { title: 'Duration', key: 'executionTimeMs', sortable: false },
@@ -413,6 +438,23 @@ function formatDate(dateString) {
 
 function formatTime(dateString) {
   return new Date(dateString).toLocaleTimeString()
+}
+
+function formatQuerySummary(queryParams) {
+  const keys = Object.keys(queryParams).filter(key => queryParams[key] !== undefined && queryParams[key] !== null && queryParams[key] !== '');
+  if (keys.length === 0) return 'All data';
+  if (keys.length === 1) return keys[0];
+  return `${keys.length} filters`;
+}
+
+function formatQueryValue(value) {
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 async function downloadExport(filename) {

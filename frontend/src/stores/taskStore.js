@@ -7,6 +7,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiClient from '../api/client.js'
 import socket from '../plugins/socket.js'
+import { downloadExportFile } from '../utils/download.js'
+import { useAnalyticsStore } from './analyticsStore.js'
 
 /**
  * Pinia store for task management with pagination, filtering, and real-time updates
@@ -319,6 +321,43 @@ export const useTaskStore = defineStore('tasks', () => {
       })
 
       const result = await apiClient.exportTasks(exportFilters, format)
+      
+      // Check if this was a cache hit and trigger immediate download
+      if (result.data && result.data.cached && result.data.filename) {
+        console.log(`🚀 Cache hit detected - triggering immediate download: ${result.data.filename}`)
+        
+        const analyticsStore = useAnalyticsStore()
+        
+        // Show cache hit notification
+        analyticsStore.addNotification({
+          message: `⚡ Export retrieved from ${result.data.cacheSource} cache: ${result.data.filename}`,
+          type: 'info',
+          timestamp: new Date().toISOString()
+        })
+        
+        try {
+          await downloadExportFile(result.data.filename, apiClient.downloadExport.bind(apiClient))
+          console.log(`✅ Cached file downloaded successfully: ${result.data.filename}`)
+          
+          // Show download success notification
+          analyticsStore.addNotification({
+            message: `✅ ${result.data.filename} downloaded successfully (cached)`,
+            type: 'success',
+            timestamp: new Date().toISOString()
+          })
+        } catch (downloadError) {
+          console.error('Failed to download cached file:', downloadError)
+          
+          // Show download failure notification
+          analyticsStore.addNotification({
+            message: `❌ Download failed for ${result.data.filename}: ${downloadError.message}`,
+            type: 'error',
+            timestamp: new Date().toISOString()
+          })
+          // Don't throw here - the export itself was successful
+        }
+      }
+      
       return result
     } catch (err) {
       error.value = err.message

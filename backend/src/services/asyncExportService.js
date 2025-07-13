@@ -3,8 +3,8 @@
  * @module services/asyncExportService
  */
 
-import ExportHistory from '../models/ExportHistory.js';
 import { exportTasks } from './exportService.js';
+import ExportCacheService from './exportCacheService.js';
 
 /**
  * Simple in-memory job queue
@@ -13,42 +13,77 @@ const jobQueue = [];
 let isProcessing = false;
 
 /**
- * Create export job and return immediately
+ * Create export job with 2-level cache checking
  * @param {Object} filters - Query filters
  * @param {string} format - Export format
  * @param {Object} requestInfo - Request information
- * @returns {Promise<Object>} Job info with ID
+ * @returns {Promise<Object>} Job info with cache result or job ID
  */
 export const createExportJob = async (filters = {}, format = 'csv', requestInfo = {}) => {
-  // Create export history record
-  const exportRecord = await ExportHistory.createExportRecord({
-    filename: `processing-${Date.now()}.${format}`, // Temporary filename
-    format,
-    totalRecords: 0, // Will be updated during processing
-    filters,
-    ipAddress: requestInfo.ipAddress,
-    userAgent: requestInfo.userAgent
-  });
+  try {
+    console.log(`🔍 Checking cache for export request: ${format}`);
 
-  // Add to job queue
-  jobQueue.push({
-    id: exportRecord._id.toString(),
-    exportRecord,
-    filters,
-    format,
-    requestInfo
-  });
+    // Check 2-level cache first
+    const cacheResult = await ExportCacheService.lookupCache(filters, format);
 
-  // Start processing if not already running
-  if (!isProcessing) {
-    processJobs();
+    if (cacheResult) {
+      console.log(`✅ Cache HIT from ${cacheResult.source}: ${cacheResult.filename}`);
+
+      return {
+        jobId: cacheResult.id || 'cached',
+        status: 'completed',
+        filename: cacheResult.filename,
+        totalRecords: cacheResult.totalRecords,
+        fileSizeBytes: cacheResult.fileSizeBytes,
+        executionTimeMs: cacheResult.executionTimeMs,
+        cached: true,
+        cacheSource: cacheResult.source,
+        message: `Export retrieved from ${cacheResult.source} cache`
+      };
+    }
+
+    console.log('❌ Cache MISS - Creating new export job');
+
+    // Generate cache key for this request
+    const dataTimestamp = await ExportCacheService.getDataFreshnessTimestamp(filters);
+    const cacheKey = ExportCacheService.generateCacheKey(filters, format, dataTimestamp);
+
+    // Create export history record with cache key
+    const exportRecord = await ExportCacheService.createDatabaseCacheRecord(
+      cacheKey,
+      {
+        filename: `processing-${Date.now()}.${format}`,
+        format,
+        totalRecords: 0
+      },
+      filters
+    );
+
+    // Add to job queue
+    jobQueue.push({
+      id: exportRecord._id.toString(),
+      exportRecord,
+      filters,
+      format,
+      requestInfo,
+      cacheKey
+    });
+
+    // Start processing if not already running
+    if (!isProcessing) {
+      processJobs();
+    }
+
+    return {
+      jobId: exportRecord._id.toString(),
+      status: 'pending',
+      cached: false,
+      message: 'Export job created and queued for processing'
+    };
+  } catch (error) {
+    console.error('Error creating export job:', error);
+    throw error;
   }
-
-  return {
-    jobId: exportRecord._id.toString(),
-    status: 'pending',
-    message: 'Export job created and queued for processing'
-  };
 };
 
 /**
@@ -76,11 +111,11 @@ async function processJobs() {
 }
 
 /**
- * Process a single export job
+ * Process a single export job with cache updates
  * @param {Object} job - Job to process
  */
 async function processExportJob(job) {
-  const { exportRecord, filters, format, requestInfo } = job;
+  const { exportRecord, filters, format, requestInfo, cacheKey } = job;
   const startTime = Date.now();
 
   try {
@@ -98,14 +133,32 @@ async function processExportJob(job) {
 
     // Call the original export function (without history creation since we already have it)
     const result = await exportTasksForJob(filters, format, requestInfo);
+    const executionTime = Date.now() - startTime;
 
     // Update the export record with final data
-    await exportRecord.markCompleted(result.fileSizeBytes, Date.now() - startTime);
+    await exportRecord.markCompleted(result.fileSizeBytes, executionTime);
 
-    // Update filename
+    // Update filename and total records
     exportRecord.filename = result.filename;
     exportRecord.totalRecords = result.taskCount;
     await exportRecord.save();
+
+    // Update cache with completion data
+    if (cacheKey) {
+      await ExportCacheService.updateDatabaseCacheRecord(cacheKey, {
+        fileSizeBytes: result.fileSizeBytes,
+        executionTimeMs: executionTime
+      });
+
+      // Set Redis cache for faster future access
+      await ExportCacheService.setRedisCache(cacheKey, {
+        filename: result.filename,
+        format: format,
+        totalRecords: result.taskCount,
+        fileSizeBytes: result.fileSizeBytes,
+        executionTimeMs: executionTime
+      });
+    }
 
     // Broadcast completion
     if (global.socketHandlers) {
@@ -116,6 +169,8 @@ async function processExportJob(job) {
         taskCount: result.taskCount
       });
     }
+
+    console.log(`✅ Export completed and cached: ${result.filename}`);
 
   } catch (error) {
     const executionTime = Date.now() - startTime;
@@ -133,6 +188,7 @@ async function processExportJob(job) {
       });
     }
 
+    console.error(`❌ Export failed: ${error.message}`);
     throw error;
   }
 }
